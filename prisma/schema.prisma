@@ -1,0 +1,63 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User remains global or replicated across all shards for authentication
+model User {
+  id        String        @id @default(uuid())
+  email     String        @unique
+  name      String
+  createdAt DateTime      @default(now())
+  sessions  CallSession[]
+}
+
+// CallSession is the primary Sharding boundary. 
+// Sharding logic: shard by user_id or id (uuid)
+model CallSession {
+  id             String           @id @default(uuid())
+  userId         String
+  user           User             @relation(fields: [userId], references: [id])
+  title          String
+  startTime      DateTime         @default(now())
+  endTime        DateTime?
+  fullTranscript String?          @db.Text
+  summary        String?          @db.Text
+  recommendations Recommendation[]
+
+  @@index([userId])
+}
+
+// Recommendations are children of CallSession and reside on the same shard
+model Recommendation {
+  id             String      @id @default(uuid())
+  callSessionId  String
+  session        CallSession @relation(fields: [callSessionId], references: [id])
+  content        String      @db.Text
+  
+  // High-level category for filtering (Sales, News, Q&A)
+  category       String
+  
+  // The specific agent that generated this
+  agentId        String      
+  
+  contextSnippet String?     @db.Text
+  feedbackStatus FeedbackStatus @default(NONE)
+  createdAt      DateTime    @default(now())
+
+  @@index([callSessionId])
+  @@index([category])
+}
+
+enum FeedbackStatus {
+  NONE
+  LIKED
+  DISLIKED
+}
