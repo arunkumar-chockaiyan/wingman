@@ -2,23 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-slate-900;
+@layer base {
+  :root {
+    --bg-base: #050505;
+    --bg-panel: #0a0a0a;
+    --bg-panel-hover: #141414;
+    --border-industrial: #333333;
+    --border-light: #444444;
+    --text-primary: #f0f0f0;
+    --text-muted: #888888;
+    --accent-live: #00FF41;
+    --accent-alert: #FF3300;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6, .font-display {
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: -0.02em;
+  }
 }
 
-/* Custom scrollbar for insights stream */
+/* Stark, minimal utilitarian scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-slate-800;
+  background: var(--bg-base);
+  border-left: 1px solid var(--border-industrial);
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-slate-700 rounded-full;
+  background: var(--border-light);
+  border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-600;
+  background: var(--text-muted);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--bg-base);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-cursor-blink {
+  animation: blink 1s step-end infinite;
 }

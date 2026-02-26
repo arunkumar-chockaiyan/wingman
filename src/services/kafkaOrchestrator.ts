@@ -5,6 +5,27 @@ const kafka = new Kafka({
   brokers: [process.env.KAFKA_BROKER || 'localhost:9092']
 });
 
+export async function setupKafkaTopics() {
+  const admin = kafka.admin();
+  await admin.connect();
+
+  // Get existing topics
+  const existingTopics = await admin.listTopics();
+  const requiredTopics = ['raw-audio', 'transcripts', 'agent-insights'];
+
+  // Find topics that don't exist yet
+  const topicsToCreate = requiredTopics
+    .filter(topic => !existingTopics.includes(topic))
+    .map(topic => ({ topic }));
+
+  if (topicsToCreate.length > 0) {
+    console.log('Creating missing Kafka topics:', topicsToCreate.map(t => t.topic));
+    await admin.createTopics({ topics: topicsToCreate });
+  }
+
+  await admin.disconnect();
+}
+
 export class Orchestrator {
   private producer: Producer;
   private audioConsumer: Consumer;
@@ -23,7 +44,7 @@ export class Orchestrator {
 
     // Subscribe to incoming raw audio chunks
     await this.audioConsumer.subscribe({ topic: 'raw-audio', fromBeginning: false });
-    
+
     // Subscribe to processed insights from various agents
     await this.insightConsumer.subscribe({ topic: 'agent-insights', fromBeginning: false });
   }

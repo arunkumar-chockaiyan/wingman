@@ -19,7 +19,7 @@ app.use(cors());
 app.use(express.json());
 
 // Main Entry Point
-async function bootstrap() {
+export async function bootstrap() {
     await orchestrator.init();
 
     // Listen for insights from Kafka and broadcast to specific clients
@@ -75,5 +75,3 @@ async function bootstrap() {
         console.log(`Wingman Backend running on port ${PORT}`);
     });
 }
-
-bootstrap().catch(console.error);
