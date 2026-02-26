@@ -25,6 +25,7 @@ async function bootstrap() {
     // Listen for insights from Kafka and broadcast to specific clients
     await orchestrator.startInsightListener((sessionId, insight) => {
         console.log(`Sending insight to session ${sessionId}:`, insight.content);
+        // We broadcast to the room named after sessionId
         io.to(sessionId).emit('insight', insight);
     });
 
@@ -32,24 +33,35 @@ async function bootstrap() {
         console.log('Client connected:', socket.id);
 
         // Initial session setup
-        socket.on('start-call', async (data: { title: string }) => {
-            const sessionId = socket.id; // Using socket ID for now as session ID
+        socket.on('start-call', async (data: { sessionId: string, title: string }) => {
+            const { sessionId, title } = data;
+
+            if (!sessionId) {
+                socket.emit('error', { message: 'Missing sessionId' });
+                return;
+            }
+
+            console.log(`Starting/Resuming call session: ${sessionId} - ${title}`);
+
+            // Join a room named after the sessionId to handle multiple sockets/reconnections
             socket.join(sessionId);
-            console.log(`Starting call session: ${sessionId} - ${data.title}`);
 
             // We could store session metadata in Postgres here
+            // e.g., await db.callSession.upsert({ ... })
         });
 
         // Handle streaming audio chunks
-        socket.on('audio-chunk', async (chunk: Buffer) => {
-            const sessionId = socket.id;
+        socket.on('audio-chunk', async (data: { sessionId: string, chunk: Buffer }) => {
+            const { sessionId, chunk } = data;
+            if (!sessionId) return;
+
             // Pipeline: Client -> Socket -> Kafka -> Transcription Service
             await orchestrator.handleAudioChunk(sessionId, chunk);
         });
 
         // Manual feedback handle
-        socket.on('feedback', async (data: { id: string, status: string }) => {
-            console.log(`Feedback received for ${data.id}: ${data.status}`);
+        socket.on('feedback', async (data: { sessionId: string, id: string, status: string }) => {
+            console.log(`Feedback received for ${data.id} in session ${data.sessionId}: ${data.status}`);
             // Store in DB asynchronously
         });
 

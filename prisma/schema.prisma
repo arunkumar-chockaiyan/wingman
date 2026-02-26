@@ -7,10 +7,8 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
-// User remains global or replicated across all shards for authentication
 model User {
   id        String        @id @default(uuid())
   email     String        @unique
@@ -19,8 +17,6 @@ model User {
   sessions  CallSession[]
 }
 
-// CallSession is the primary Sharding boundary. 
-// Sharding logic: shard by user_id or id (uuid)
 model CallSession {
   id             String           @id @default(uuid())
   userId         String
@@ -33,9 +29,9 @@ model CallSession {
   recommendations Recommendation[]
 
   @@index([userId])
+  @@index([startTime]) // Added for dashboard sorting
 }
 
-// Recommendations are children of CallSession and reside on the same shard
 model Recommendation {
   id             String      @id @default(uuid())
   callSessionId  String
@@ -54,6 +50,7 @@ model Recommendation {
 
   @@index([callSessionId])
   @@index([category])
+  @@index([createdAt]) // Added for chronological insight retrieval
 }
 
 enum FeedbackStatus {
