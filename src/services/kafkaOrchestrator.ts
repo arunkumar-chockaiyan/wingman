@@ -1,4 +1,5 @@
 import { Kafka, Producer, Consumer } from 'kafkajs';
+import WebSocket from 'ws';
 
 const kafka = new Kafka({
   clientId: 'wingman-orchestrator',
@@ -30,6 +31,8 @@ export class Orchestrator {
   private producer: Producer;
   private audioConsumer: Consumer;
   private insightConsumer: Consumer;
+  private activeVoskSessions: Map<string, WebSocket> = new Map();
+
 
   constructor() {
     this.producer = kafka.producer();
@@ -81,6 +84,53 @@ export class Orchestrator {
           onInsight(sessionId, content);
         }
       },
+    });
+  }
+
+  /**
+   * Starts processing raw audio chunks (e.g., streaming to STT provider)
+   */
+  async startAudioProcessor() {
+    await this.audioConsumer.run({
+      eachMessage: async ({ topic, partition, message }) => {
+        const sessionId = message.key?.toString();
+        const chunk = message.value;
+
+        if (sessionId && chunk) {
+          let ws = this.activeVoskSessions.get(sessionId);
+
+          if (!ws) {
+            console.log(`[Audio Processor] Opening Vosk stream for session: ${sessionId}`);
+            ws = new WebSocket('ws://localhost:2700');
+
+            ws.on('message', async (data) => {
+              const response = JSON.parse(data.toString());
+              // Vosk returns { text: "final transcript" } for complete sentences
+              if (response.text && response.text.trim().length > 0) {
+                console.log(`[Vosk] Final Transcript for ${sessionId}: ${response.text}`);
+                await this.broadcastTranscript(sessionId, response.text);
+              }
+            });
+
+            ws.on('close', () => {
+              this.activeVoskSessions.delete(sessionId);
+            });
+
+            ws.on('error', (err) => {
+              console.error(`[Vosk Error] Session ${sessionId}:`, err);
+            });
+
+            this.activeVoskSessions.set(sessionId, ws);
+          }
+
+          // Buffer until the connection is open
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(chunk);
+          } else if (ws.readyState === WebSocket.CONNECTING) {
+            ws.once('open', () => ws?.send(chunk));
+          }
+        }
+      }
     });
   }
 }

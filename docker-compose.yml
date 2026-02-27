@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # Vosk Speech-to-Text Server
+  vosk-server:
+    image: alphacep/kaldi-en:latest
+    container_name: wingman-vosk
+    ports:
+      - "2700:2700"
+    restart: unless-stopped
+
+  # Zookeeper (Required for Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: wingman-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  # Kafka Broker
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: wingman-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Configure listeners: PLAINTEXT for internal docker network, PLAINTEXT_HOST for host access
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  # Kafka UI for visual management
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: wingman-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=wingman-local
+      # Connect to the internal Kafka port exposed to the docker network
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092

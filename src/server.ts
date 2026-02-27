@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
+import * as googleTTS from 'google-tts-api';
 import { Orchestrator } from './services/kafkaOrchestrator';
 
 const app = express();
@@ -18,9 +19,38 @@ const orchestrator = new Orchestrator();
 app.use(cors());
 app.use(express.json());
 
+// TTS Simulation Endpoint
+app.post('/api/simulate-tts', async (req, res) => {
+    try {
+        const { text } = req.body;
+        if (!text || typeof text !== 'string') {
+            return res.status(400).json({ error: 'Text is required for TTS simulation' });
+        }
+
+        // google-tts-api limits chunks to 200 characters. 
+        // We will split the text and get base64 audio for all chunks.
+        const audioResults = await googleTTS.getAllAudioBase64(text, {
+            lang: 'en',
+            slow: false,
+            host: 'https://translate.google.com',
+            splitPunct: ',.?'
+        });
+
+        // The google-tts-api returns an array of base64 chunks.
+        // For simplicity we return them directly so the frontend can stitch and play them back to back
+        res.json({ audioChunks: audioResults });
+    } catch (error) {
+        console.error("TTS Error:", error);
+        res.status(500).json({ error: 'Failed to generate TTS' });
+    }
+});
+
 // Main Entry Point
 export async function bootstrap() {
     await orchestrator.init();
+
+    // Start consuming and processing raw audio chunks
+    await orchestrator.startAudioProcessor();
 
     // Listen for insights from Kafka and broadcast to specific clients
     await orchestrator.startInsightListener((sessionId, insight) => {
