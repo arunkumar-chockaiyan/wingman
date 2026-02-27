@@ -4,6 +4,10 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import * as googleTTS from 'google-tts-api';
 import { Orchestrator } from './services/kafkaOrchestrator';
+import { CallSessionService } from './services/callSessionService';
+import { UserRepository } from './repositories/UserRepository';
+import { CallSessionRepository } from './repositories/CallSessionRepository';
+import { RecommendationRepository } from './repositories/RecommendationRepository';
 
 const app = express();
 const httpServer = createServer(app);
@@ -15,6 +19,16 @@ const io = new Server(httpServer, {
 });
 
 const orchestrator = new Orchestrator();
+
+// Layered DI: Repositories → Service
+const callSessionService = new CallSessionService(
+    new UserRepository(),
+    new CallSessionRepository(),
+    new RecommendationRepository()
+);
+
+// In-memory map to track active sessions and their accumulated transcripts
+const activeTranscripts = new Map<string, string>();
 
 app.use(cors());
 app.use(express.json());
@@ -63,21 +77,26 @@ export async function bootstrap() {
         console.log('Client connected:', socket.id);
 
         // Initial session setup
-        socket.on('start-call', async (data: { sessionId: string, title: string }) => {
-            const { sessionId, title } = data;
+        socket.on('start-call', async (data: { sessionId?: string, title: string }) => {
+            try {
+                const title = data.title || 'Untitled Call';
 
-            if (!sessionId) {
-                socket.emit('error', { message: 'Missing sessionId' });
-                return;
+                // Create a new CallSession in the DB with the default admin user
+                const session = await callSessionService.startSession(title);
+                const sessionId = session.id;
+
+                console.log(`Call session created in DB: ${sessionId} - ${title}`);
+
+                // Join a room named after the DB session ID
+                socket.join(sessionId);
+                activeTranscripts.set(sessionId, '');
+
+                // Send the DB-assigned session ID back to the client
+                socket.emit('session-started', { sessionId, title });
+            } catch (error) {
+                console.error('Error starting call session:', error);
+                socket.emit('error', { message: 'Failed to start call session' });
             }
-
-            console.log(`Starting/Resuming call session: ${sessionId} - ${title}`);
-
-            // Join a room named after the sessionId to handle multiple sockets/reconnections
-            socket.join(sessionId);
-
-            // We could store session metadata in Postgres here
-            // e.g., await db.callSession.upsert({ ... })
         });
 
         // Handle streaming audio chunks
@@ -91,8 +110,26 @@ export async function bootstrap() {
 
         // Manual feedback handle
         socket.on('feedback', async (data: { sessionId: string, id: string, status: string }) => {
-            console.log(`Feedback received for ${data.id} in session ${data.sessionId}: ${data.status}`);
-            // Store in DB asynchronously
+            try {
+                const status = data.status === 'liked' ? 'LIKED' : 'DISLIKED';
+                await callSessionService.recordFeedback(data.id, status as 'LIKED' | 'DISLIKED');
+                console.log(`Feedback persisted for ${data.id}: ${status}`);
+            } catch (error) {
+                console.error('Error recording feedback:', error);
+            }
+        });
+
+        // End call: persist the full transcript
+        socket.on('end-call', async (data: { sessionId: string }) => {
+            try {
+                const { sessionId } = data;
+                const transcript = activeTranscripts.get(sessionId) || '';
+                await callSessionService.endSession(sessionId, transcript);
+                activeTranscripts.delete(sessionId);
+                console.log(`Call session ${sessionId} ended and persisted.`);
+            } catch (error) {
+                console.error('Error ending call session:', error);
+            }
         });
 
         socket.on('disconnect', () => {

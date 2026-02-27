@@ -10,7 +10,10 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "prisma:generate": "prisma generate",
-    "prisma:studio": "prisma studio"
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "prisma:studio": "prisma studio",
+    "db:setup": "prisma migrate dev && ts-node prisma/seed.ts"
   },
   "keywords": [],
   "author": "ArunKumar Chockaiyan",
