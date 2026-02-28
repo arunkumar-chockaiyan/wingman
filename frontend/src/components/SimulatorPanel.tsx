@@ -17,23 +17,26 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
     };
 
     return (
-        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
+        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex-1 flex flex-col">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
                 <Cpu size={16} className="text-indigo-500" />
                 <h2 className="font-bold uppercase text-slate-900 text-[11px] tracking-widest">
-                    Practice Mode
+                    Simulate Call
                 </h2>
             </div>
+            <p className="text-[10px] text-slate-400 mb-4 leading-relaxed">
+                Copy any transcript below to replay a call.
+            </p>
 
-            <div className="relative group">
+            <div className="relative group flex-1 flex flex-col">
                 <div className="absolute left-3 top-3 pointer-events-none">
                     <MessageSquare size={14} className="text-slate-300 group-focus-within:text-indigo-400 transition-colors" />
                 </div>
                 <textarea
-                    className="w-full bg-slate-50 border border-slate-100 text-slate-700 p-3 pl-9 text-xs font-medium h-32 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all mb-4 leading-relaxed"
+                    className="w-full flex-1 bg-slate-50 border border-slate-100 text-slate-700 p-3 pl-9 text-xs font-medium rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all mb-4 leading-relaxed resize-none"
                     value={script}
                     onChange={(e) => setScript(e.target.value)}
-                    placeholder="Type a practice conversation script..."
+                    placeholder="Copy any transcript below to replay a call."
                     disabled={isSimulating}
                 />
             </div>
@@ -50,7 +53,7 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
                         <Play size={16} className="text-slate-400 group-hover:text-white transition-colors" />
                     )}
                     <span className="font-bold text-xs uppercase tracking-wider">
-                        {isSimulating ? 'Running...' : 'Run Practice Call'}
+                        {isSimulating ? 'Running...' : 'Replay Transcript'}
                     </span>
                 </div>
                 <div className="flex items-center gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
@@ -60,7 +63,7 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
                 </div>
             </button>
             <p className="mt-3 text-[9px] text-slate-400 font-medium tracking-tight text-center">
-                Converts text to speech and runs through the full AI pipeline
+                Replay a call through the full AI pipeline
             </p>
         </div>
     );

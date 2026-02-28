@@ -24,10 +24,9 @@ const App: React.FC = () => {
             <Header
                 sessionId={sessionId}
                 isCalling={isCalling || isSimulating}
-                onStopCall={stopCall}
             />
 
-            <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
+            <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0 p-6">
                 {/* Column 1: Controls & Simulations (3/12) */}
                 <aside className="lg:col-span-3 flex flex-col gap-6 overflow-y-auto pr-1 custom-scroll">
                     <ControlPanel

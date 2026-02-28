@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, PhoneOff, Activity, Signal } from 'lucide-react';
+import { Mic, PhoneOff, Signal } from 'lucide-react';
 
 interface ControlPanelProps {
     isCalling: boolean;
@@ -21,7 +21,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-5">
                     <Signal size={16} className="text-indigo-500" />
                     <h2 className="font-bold uppercase text-slate-900 text-[11px] tracking-widest">
-                        Call Controls
+                        Call
                     </h2>
                 </div>
 
@@ -68,43 +68,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                             </span>
                         </div>
                     </div>
-                </div>
-            </div>
-
-            {/* Signal Telemetry Panel */}
-            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl flex-1 hidden lg:flex flex-col min-h-0">
-                <div className="flex items-center gap-2 border-b border-slate-800 pb-3 mb-4 shrink-0">
-                    <Activity size={16} className="text-indigo-400" />
-                    <h2 className="font-bold uppercase text-slate-300 text-[11px] tracking-widest">
-                        System Activity
-                    </h2>
-                </div>
-                <div className="flex-1 flex flex-col justify-end text-[10px] font-mono text-indigo-300/60 space-y-1.5 overflow-hidden">
-                    {isCalling ? (
-                        <>
-                            <p className="flex items-center gap-2">
-                                <span className="text-indigo-500">›</span>
-                                Listening to conversation...
-                            </p>
-                            <p className="flex items-center gap-2 text-indigo-200">
-                                <span className="text-indigo-500 animate-pulse">●</span>
-                                Transcribing speech in real-time
-                            </p>
-                            <p className="flex items-center gap-2">
-                                <span className="text-indigo-500">›</span>
-                                Detecting key moments and cues
-                            </p>
-                            <p className="flex items-center gap-2">
-                                <span className="text-indigo-500">›</span>
-                                Generating AI coaching tips...
-                            </p>
-                        </>
-                    ) : (
-                        <>
-                            <p className="text-slate-500 italic font-sans">Ready to assist on your next call</p>
-                            <p className="text-slate-500 italic font-sans">Start a call to see live activity</p>
-                        </>
-                    )}
                 </div>
             </div>
         </div>

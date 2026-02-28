@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Mic, Video, Monitor, Settings, PhoneOff, Bird } from 'lucide-react';
+import { Settings, Bird } from 'lucide-react';
 
 interface HeaderProps {
     sessionId: string;
     isCalling: boolean;
-    onStopCall?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ isCalling, onStopCall }) => {
+export const Header: React.FC<HeaderProps> = ({ isCalling }) => {
     const [timer, setTimer] = useState(0);
 
     useEffect(() => {
@@ -56,33 +55,17 @@ export const Header: React.FC<HeaderProps> = ({ isCalling, onStopCall }) => {
                     </span>
                 </div>
 
-                {/* Control Icons */}
-                <div className="flex items-center gap-2">
-                    <button className="p-2.5 rounded-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm">
-                        <Mic size={18} />
-                    </button>
-                    <button className="p-2.5 rounded-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm">
-                        <Video size={18} />
-                    </button>
-                    <button className="p-2.5 rounded-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm">
-                        <Monitor size={18} />
-                    </button>
-                    <button className="p-2.5 rounded-full bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm">
-                        <Settings size={18} />
-                    </button>
+                {/* User Info */}
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center border border-indigo-200">
+                        <span className="text-xs font-bold text-indigo-600">AC</span>
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">Arun Chockaiyan</span>
                 </div>
 
-                {/* End Call Action */}
-                <button
-                    onClick={onStopCall}
-                    disabled={!isCalling}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-md active:scale-95 ${isCalling
-                            ? 'bg-rose-500 text-white hover:bg-rose-600 shadow-rose-100'
-                            : 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
-                        }`}
-                >
-                    <PhoneOff size={18} />
-                    <span>End Call</span>
+                {/* Settings */}
+                <button className="p-2.5 rounded-full bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-700 transition-all shadow-sm">
+                    <Settings size={18} />
                 </button>
             </div>
         </header>
