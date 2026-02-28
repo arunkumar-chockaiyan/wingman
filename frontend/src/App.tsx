@@ -20,8 +20,12 @@ const App: React.FC = () => {
     } = useWingmanSession();
 
     return (
-        <div className="min-h-screen bg-slate-50 p-4 md:p-6 lg:p-8 flex flex-col h-screen overflow-hidden">
-            <Header sessionId={sessionId} isCalling={isCalling || isSimulating} />
+        <div className="min-h-screen bg-slate-50 flex flex-col h-screen overflow-hidden">
+            <Header
+                sessionId={sessionId}
+                isCalling={isCalling || isSimulating}
+                onStopCall={stopCall}
+            />
 
             <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
                 {/* Column 1: Controls & Simulations (3/12) */}

@@ -20,8 +20,8 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
         <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
                 <Cpu size={16} className="text-indigo-500" />
-                <h2 className="font-bold uppercase text-slate-900 text-[11px] tracking-widest text-sm tracking-widest">
-                    Sales Scenario Simulator
+                <h2 className="font-bold uppercase text-slate-900 text-[11px] tracking-widest">
+                    Practice Mode
                 </h2>
             </div>
 
@@ -33,7 +33,7 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
                     className="w-full bg-slate-50 border border-slate-100 text-slate-700 p-3 pl-9 text-xs font-medium h-32 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all mb-4 leading-relaxed"
                     value={script}
                     onChange={(e) => setScript(e.target.value)}
-                    placeholder="Enter simulation transcript..."
+                    placeholder="Type a practice conversation script..."
                     disabled={isSimulating}
                 />
             </div>
@@ -50,7 +50,7 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
                         <Play size={16} className="text-slate-400 group-hover:text-white transition-colors" />
                     )}
                     <span className="font-bold text-xs uppercase tracking-wider">
-                        {isSimulating ? 'Processing Scenario...' : 'Execute Simulation'}
+                        {isSimulating ? 'Running...' : 'Run Practice Call'}
                     </span>
                 </div>
                 <div className="flex items-center gap-1 opacity-40 group-hover:opacity-100 transition-opacity">
@@ -59,8 +59,8 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
                     <span className="w-1 h-3 bg-indigo-300 rounded-full" />
                 </div>
             </button>
-            <p className="mt-3 text-[9px] text-slate-400 font-medium uppercase tracking-tight text-center">
-                Uses Google TTS Engine // Captured via captureStream()
+            <p className="mt-3 text-[9px] text-slate-400 font-medium tracking-tight text-center">
+                Converts text to speech and runs through the full AI pipeline
             </p>
         </div>
     );

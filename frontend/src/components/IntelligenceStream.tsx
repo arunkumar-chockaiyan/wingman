@@ -37,10 +37,10 @@ export const IntelligenceStream: React.FC<IntelligenceStreamProps> = ({ insights
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
                 <div className="flex items-center gap-2">
                     <Sparkles size={18} className="text-indigo-600" />
-                    <h2 className="font-bold text-slate-900 text-sm tracking-tight uppercase">Intelligence Stream</h2>
+                    <h2 className="font-bold text-slate-900 text-sm tracking-tight">AI Insights & Suggestions</h2>
                 </div>
                 <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">Live Buffer</span>
+                    <span className="text-[10px] font-bold text-slate-400">Insights</span>
                     <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold">{insights.length}</span>
                 </div>
             </div>
@@ -49,8 +49,8 @@ export const IntelligenceStream: React.FC<IntelligenceStreamProps> = ({ insights
                 {insights.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center opacity-40 text-center px-8">
                         <Sparkles size={32} className="mb-4 text-slate-300" />
-                        <p className="text-sm font-semibold text-slate-800 uppercase tracking-widest">Awaiting Transmission</p>
-                        <p className="text-xs text-slate-500 mt-2 italic">Connect via Comms Hub to begin real-time analysis.</p>
+                        <p className="text-sm font-semibold text-slate-500">No insights yet</p>
+                        <p className="text-xs text-slate-400 mt-2">Start a call to get real-time coaching tips and suggestions.</p>
                     </div>
                 ) : (
                     insights.map((insight, idx) => {

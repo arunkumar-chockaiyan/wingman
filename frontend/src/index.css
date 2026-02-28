@@ -1,98 +1,88 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-@layer base {
-  :root {
-    /* Modern Enterprise Palette - Orum Inspired */
-    --color-primary: #0D0D15;
-    --color-accent: #6366F1;
-    /* Indigo */
-    --color-success: #10B981;
-    /* Emerald */
-    --color-warning: #F59E0B;
-    /* Amber */
-    --color-error: #EF4444;
-    /* Rose */
-    --color-info: #3B82F6;
-    /* Blue */
+/* === Custom Design Tokens === */
+:root {
+  --color-primary: #0D0D15;
+  --color-accent: #6366F1;
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-info: #3B82F6;
 
-    --bg-app: #F8FAFC;
-    --bg-sidebar: #0D0D15;
-    --bg-card: #FFFFFF;
-    --bg-card-hover: #F1F5F9;
+  --bg-app: #F8FAFC;
+  --bg-sidebar: #0D0D15;
+  --bg-card: #FFFFFF;
+  --bg-card-hover: #F1F5F9;
 
-    --text-primary: #0F172A;
-    --text-secondary: #475569;
-    --text-muted: #94A3B8;
-    --text-on-dark: #F8FAFC;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #94A3B8;
+  --text-on-dark: #F8FAFC;
 
-    --border-subtle: #E2E8F0;
-    --border-focus: #6366F1;
+  --border-subtle: #E2E8F0;
+  --border-focus: #6366F1;
 
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    --radius-lg: 12px;
-    --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+/* === Global Styles === */
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* === Custom Scrollbar === */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* === Animations === */
+@keyframes blink {
+
+  0%,
+  100% {
+    opacity: 1;
   }
 
-  body {
-    margin: 0;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    background-color: var(--bg-app);
-    color: var(--text-primary);
-    -webkit-font-smoothing: antialiased;
-    overflow: hidden;
+  50% {
+    opacity: 0;
   }
+}
 
-  h1,
-  h2,
-  h3,
-  h4 {
-    font-family: 'Inter', sans-serif;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-  }
-
-  .font-mono {
-    font-family: 'JetBrains Mono', monospace;
-  }
-
-  /* Custom Scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background: var(--border-subtle);
-    border-radius: 10px;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
-  }
-
-  ::-webkit-scrollbar-corner {
-    background: var(--bg-base);
-  }
-
-  @keyframes blink {
-
-    0%,
-    100% {
-      opacity: 1;
-    }
-
-    50% {
-      opacity: 0;
-    }
-  }
-
-  .animate-cursor-blink {
-    animation: blink 1s step-end infinite;
-  }
+.animate-cursor-blink {
+  animation: blink 1s step-end infinite;
 }

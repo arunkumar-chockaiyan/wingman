@@ -21,7 +21,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-5">
                     <Signal size={16} className="text-indigo-500" />
                     <h2 className="font-bold uppercase text-slate-900 text-[11px] tracking-widest">
-                        Communication Hub
+                        Call Controls
                     </h2>
                 </div>
 
@@ -32,9 +32,9 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     >
                         <div className="flex items-center gap-3">
                             <Mic size={18} />
-                            <span className="font-bold text-sm">Initialize Sec-Link</span>
+                            <span className="font-bold text-sm">Start Call</span>
                         </div>
-                        <span className="bg-indigo-500/20 px-2 py-0.5 rounded text-[10px] font-black tracking-tighter">INIT</span>
+                        <span className="bg-indigo-500/20 px-2 py-0.5 rounded text-[10px] font-black tracking-tighter">GO</span>
                     </button>
                 ) : (
                     <button
@@ -43,28 +43,28 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                     >
                         <div className="flex items-center gap-3">
                             <PhoneOff size={18} />
-                            <span className="font-bold text-sm">Terminate Link</span>
+                            <span className="font-bold text-sm">End Call</span>
                         </div>
-                        <span className="bg-rose-400/20 px-2 py-0.5 rounded text-[10px] font-black tracking-tighter">HALT</span>
+                        <span className="bg-rose-400/20 px-2 py-0.5 rounded text-[10px] font-black tracking-tighter">STOP</span>
                     </button>
                 )}
 
                 <div className="mt-6 space-y-3">
                     <div className="flex justify-between items-center text-[11px]">
-                        <span className="text-slate-400 font-semibold uppercase tracking-wider">Audio Uplink</span>
+                        <span className="text-slate-400 font-semibold uppercase tracking-wider">Microphone</span>
                         <div className="flex items-center gap-2">
                             <span className={`w-2 h-2 rounded-full ${isCalling ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
                             <span className={`font-bold ${isCalling ? 'text-emerald-600' : 'text-slate-400'}`}>
-                                {isCalling ? 'OPUS // 48KHz' : 'OFFLINE'}
+                                {isCalling ? 'Active' : 'Off'}
                             </span>
                         </div>
                     </div>
                     <div className="flex justify-between items-center text-[11px]">
-                        <span className="text-slate-400 font-semibold uppercase tracking-wider">Socket Status</span>
+                        <span className="text-slate-400 font-semibold uppercase tracking-wider">Connection</span>
                         <div className="flex items-center gap-2">
                             <span className={`w-2 h-2 rounded-full ${socketConnected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                             <span className={`font-bold ${socketConnected ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                {socketConnected ? 'CONNECTED' : 'TERMINATED'}
+                                {socketConnected ? 'Connected' : 'Disconnected'}
                             </span>
                         </div>
                     </div>
@@ -76,7 +76,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <div className="flex items-center gap-2 border-b border-slate-800 pb-3 mb-4 shrink-0">
                     <Activity size={16} className="text-indigo-400" />
                     <h2 className="font-bold uppercase text-slate-300 text-[11px] tracking-widest">
-                        Neural Telemetry
+                        System Activity
                     </h2>
                 </div>
                 <div className="flex-1 flex flex-col justify-end text-[10px] font-mono text-indigo-300/60 space-y-1.5 overflow-hidden">
@@ -84,25 +84,25 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                         <>
                             <p className="flex items-center gap-2">
                                 <span className="text-indigo-500">›</span>
-                                Audio stream high-fidelity active
+                                Listening to conversation...
                             </p>
                             <p className="flex items-center gap-2 text-indigo-200">
                                 <span className="text-indigo-500 animate-pulse">●</span>
-                                Chunks streaming via Socket.IO
+                                Transcribing speech in real-time
                             </p>
                             <p className="flex items-center gap-2">
                                 <span className="text-indigo-500">›</span>
-                                VAD detection sensitivity: 0.85
+                                Detecting key moments and cues
                             </p>
                             <p className="flex items-center gap-2">
                                 <span className="text-indigo-500">›</span>
-                                Awaiting multi-agent synthesis...
+                                Generating AI coaching tips...
                             </p>
                         </>
                     ) : (
                         <>
-                            <p className="text-slate-500 italic font-sans">&gt; Diagnostic relay standby</p>
-                            <p className="text-slate-500 italic font-sans">&gt; System initialized v2.4.0</p>
+                            <p className="text-slate-500 italic font-sans">Ready to assist on your next call</p>
+                            <p className="text-slate-500 italic font-sans">Start a call to see live activity</p>
                         </>
                     )}
                 </div>
