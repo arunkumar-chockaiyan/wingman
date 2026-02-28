@@ -4,7 +4,7 @@ Wingman is an intelligent, real-time sales assistant designed to empower sales p
 
 ## 🚀 Features
 
-- **Live Transcription**: Real-time audio processing and transcription using Vosk.
+- **Live Audio Processing**: Real-time audio ingestion and processing using Vosk STT.
 - **Agentic Insights**:
     - **Sales Coach Agent**: Provides real-time feedback on tone and objection handling.
     - **Q&A Agent**: Answers questions surfacing during the conversation.
@@ -12,6 +12,7 @@ Wingman is an intelligent, real-time sales assistant designed to empower sales p
 - **Event-Driven Architecture**: High-throughput orchestration using Apache Kafka.
 - **TTS Simulation**: Built-in Text-to-Speech simulation for testing and accessibility.
 - **Persistence**: Full call history and recommendation tracking with Prisma and PostgreSQL.
+- **Kafka Monitoring**: Built-in Kafka UI for observing event streams and consumer groups.
 
 ## 🛠 Tech Stack
 
@@ -73,8 +74,12 @@ cd frontend
 npm run dev
 ```
 
-## 📖 Documentation
+## 🔍 Monitoring
+Access the Kafka UI at `http://localhost:8080` to monitor:
+- Event streams on `raw-audio`, `transcripts`, and `agent-insights`.
+- Consumer group performance for each agent.
 
+## 📖 Documentation
 For detailed technical architecture and protocol specifications, see [specifications.md](./specifications.md).
 
 ## 📄 License
