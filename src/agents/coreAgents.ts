@@ -1,6 +1,7 @@
 import { Kafka } from 'kafkajs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { AGENT_PROMPTS } from '../prompts/agentTemplates';
+import logger from '../utils/logger';
 
 const kafka = new Kafka({ brokers: [process.env.KAFKA_BROKER || 'localhost:9092'] });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -65,7 +66,7 @@ export class GenericAgent {
             ]);
             return result.response.text();
         } catch (error) {
-            console.error(`${this.agentId} Error:`, error);
+            logger.error(`${this.agentId} Error`, { error, agentId: this.agentId });
             return null;
         }
     }

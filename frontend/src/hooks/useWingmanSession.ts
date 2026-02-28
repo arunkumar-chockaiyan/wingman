@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { Insight } from '../types';
+import { Insight, TranscriptChunk } from '../types';
 
 const generateUUID = () => {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -13,6 +13,7 @@ export const useWingmanSession = () => {
     const [isCalling, setIsCalling] = useState(false);
     const [isSimulating, setIsSimulating] = useState(false);
     const [insights, setInsights] = useState<Insight[]>([]);
+    const [transcripts, setTranscripts] = useState<TranscriptChunk[]>([]);
     const [socketConnected, setSocketConnected] = useState(false);
 
     const [sessionId] = useState<string>(() => {
@@ -28,12 +29,26 @@ export const useWingmanSession = () => {
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
+    const isSimulatingRef = useRef(false);
+
+    useEffect(() => {
+        isSimulatingRef.current = isSimulating;
+    }, [isSimulating]);
+
     useEffect(() => {
         const socket = io('http://localhost:3001');
         socketRef.current = socket;
 
         socket.on('insight', (insight: Insight) => {
             setInsights((prev) => [...prev, insight]);
+        });
+
+        socket.on('transcript', (data: TranscriptChunk) => {
+            const enrichedData = {
+                ...data,
+                speaker: isSimulatingRef.current ? 'Simulator' : 'User'
+            };
+            setTranscripts((prev) => [...prev, enrichedData]);
         });
 
         socket.on('connect', () => {
@@ -178,6 +193,7 @@ export const useWingmanSession = () => {
         isSimulating,
         sessionId,
         insights,
+        transcripts,
         socketConnected,
         startCall,
         startSimulation,

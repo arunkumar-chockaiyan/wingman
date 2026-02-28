@@ -1,4 +1,5 @@
 import React from 'react';
+import { Shield, Radio, Activity } from 'lucide-react';
 
 interface HeaderProps {
     sessionId: string;
@@ -7,33 +8,32 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({ sessionId, isCalling }) => {
     return (
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 border-b border-[var(--border-industrial)] pb-4 shrink-0">
-            <div>
-                <h1 className="text-4xl font-display font-bold text-[var(--text-primary)] tracking-tight uppercase flex items-center gap-1">
-                    WINGMAN<span className="text-[var(--accent-live)]">_</span>SYS
-                </h1>
-                <p className="text-[var(--text-muted)] text-sm uppercase tracking-widest mt-1 hidden md:block">
-                    Real-Time Intelligence HUD // v1.0.4
-                </p>
-            </div>
-            <div className="text-[var(--text-muted)] text-xs md:text-sm text-right mt-4 md:mt-0 flex flex-col items-end">
-                <div className="flex items-center gap-2 mb-1">
-                    <span className="uppercase tracking-widest text-[10px] text-[var(--border-light)]">Session ID</span>
-                    <span className="bg-[var(--bg-panel)] px-2 py-1 border border-[var(--border-industrial)]">
-                        {sessionId.slice(0, 8)}{sessionId ? <span className="animate-cursor-blink text-[var(--accent-live)]">_</span> : null}
-                    </span>
+        <header className="h-16 flex items-center justify-between px-6 bg-white border-b border-slate-200 shadow-sm mb-6 rounded-xl">
+            <div className="flex items-center gap-3">
+                <div className="bg-indigo-600 p-2 rounded-lg">
+                    <Shield size={20} className="text-white" />
                 </div>
-                <div className="flex items-center gap-2 mt-1">
-                    <span className="uppercase tracking-widest text-[10px] text-[var(--border-light)]">Status</span>
+                <div>
+                    <h1 className="text-lg font-bold text-slate-900 leading-tight">Wingman AI</h1>
+                    <p className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Enterprise Intel v2.0</p>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-6">
+                <div className="flex flex-col items-end">
+                    <span className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Active Session</span>
+                    <span className="text-xs font-mono text-slate-600 font-medium">{sessionId.slice(0, 8)}...</span>
+                </div>
+
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-colors ${isCalling ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
                     {isCalling ? (
-                        <span className="text-[var(--bg-base)] bg-[var(--accent-live)] px-2 py-1 font-bold text-xs">
-                            LIVE
-                        </span>
+                        <Radio size={14} className="animate-pulse" />
                     ) : (
-                        <span className="text-[var(--text-muted)] bg-[var(--bg-panel)] border border-[var(--border-industrial)] px-2 py-1 text-xs">
-                            STANDBY
-                        </span>
+                        <Activity size={14} />
                     )}
+                    <span className="text-[10px] font-bold tracking-wide uppercase">
+                        {isCalling ? 'Live Monitoring' : 'System Standby'}
+                    </span>
                 </div>
             </div>
         </header>

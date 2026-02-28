@@ -1,15 +1,19 @@
+import { initTracing } from './config/tracing';
+initTracing(); // Initialize tracing before any other imports
+
 import 'dotenv/config'; // Ensure environment variables are loaded first
 import { bootstrap } from './server';
 import { salesCoachAgent, qaAgent } from './agents/coreAgents';
 import { SearchAgent } from './agents/searchAgent';
 import { setupKafkaTopics } from './services/kafkaOrchestrator';
+import logger from './utils/logger';
 
 async function start() {
     try {
-        console.log("Setting up Kafka topics...");
+        logger.info("Setting up Kafka topics...");
         await setupKafkaTopics();
 
-        console.log("Initializing Agent Consumers...");
+        logger.info("Initializing Agent Consumers...");
 
         const searchAgent = new SearchAgent();
 
@@ -20,18 +24,18 @@ async function start() {
             searchAgent.init()
         ]);
 
-        console.log("Starting Agent Consumers...");
+        logger.info("Starting Agent Consumers...");
         // Start processing messages
         salesCoachAgent.start();
         qaAgent.start();
         searchAgent.start();
 
-        console.log("Initializing Express server and Ingestion Consumers...");
+        logger.info("Initializing Express server and Ingestion Consumers...");
         // Start the web server and its specific Kafka consumers
         await bootstrap();
 
     } catch (error) {
-        console.error("Failed to start application:", error);
+        logger.error("Failed to start application", { error });
         process.exit(1);
     }
 }

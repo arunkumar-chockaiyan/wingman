@@ -41,3 +41,36 @@ services:
     environment:
       - KAFKA_CLUSTERS_0_NAME=wingman-local
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+
+  # Loki for log storage
+  loki:
+    image: grafana/loki:latest
+    container_name: wingman-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  # Jaeger for distributed tracing
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: wingman-jaeger
+    ports:
+      - "16686:16686" # UI
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+    restart: unless-stopped
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: wingman-grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - loki
+      - jaeger
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    restart: unless-stopped

@@ -1,5 +1,6 @@
 import { Kafka, Producer, Consumer } from 'kafkajs';
 import WebSocket from 'ws';
+import logger from '../utils/logger';
 
 const kafka = new Kafka({
   clientId: 'wingman-orchestrator',
@@ -20,7 +21,7 @@ export async function setupKafkaTopics() {
     .map(topic => ({ topic }));
 
   if (topicsToCreate.length > 0) {
-    console.log('Creating missing Kafka topics:', topicsToCreate.map(t => t.topic));
+    logger.info('Creating missing Kafka topics', { topics: topicsToCreate.map(t => t.topic) });
     await admin.createTopics({ topics: topicsToCreate });
   }
 
@@ -31,6 +32,7 @@ export class Orchestrator {
   private producer: Producer;
   private audioConsumer: Consumer;
   private insightConsumer: Consumer;
+  private transcriptConsumer: Consumer;
   private activeVoskSessions: Map<string, WebSocket> = new Map();
 
 
@@ -38,18 +40,23 @@ export class Orchestrator {
     this.producer = kafka.producer();
     this.audioConsumer = kafka.consumer({ groupId: 'audio-processors' });
     this.insightConsumer = kafka.consumer({ groupId: 'result-aggregators' });
+    this.transcriptConsumer = kafka.consumer({ groupId: 'transcript-feed' });
   }
 
   async init() {
     await this.producer.connect();
     await this.audioConsumer.connect();
     await this.insightConsumer.connect();
+    await this.transcriptConsumer.connect();
 
     // Subscribe to incoming raw audio chunks
     await this.audioConsumer.subscribe({ topic: 'raw-audio', fromBeginning: false });
 
     // Subscribe to processed insights from various agents
     await this.insightConsumer.subscribe({ topic: 'agent-insights', fromBeginning: false });
+
+    // Subscribe to raw transcripts
+    await this.transcriptConsumer.subscribe({ topic: 'transcripts', fromBeginning: false });
   }
 
   /**
@@ -88,6 +95,21 @@ export class Orchestrator {
   }
 
   /**
+   * Listens for transcripts and routes them back to the specific client
+   */
+  async startTranscriptListener(onTranscript: (sessionId: string, data: { transcript: string, timestamp: number }) => void) {
+    await this.transcriptConsumer.run({
+      eachMessage: async ({ topic, partition, message }) => {
+        const sessionId = message.key?.toString();
+        const content = JSON.parse(message.value?.toString() || '{}');
+        if (sessionId) {
+          onTranscript(sessionId, content);
+        }
+      },
+    });
+  }
+
+  /**
    * Starts processing raw audio chunks (e.g., streaming to STT provider)
    */
   async startAudioProcessor() {
@@ -100,14 +122,14 @@ export class Orchestrator {
           let ws = this.activeVoskSessions.get(sessionId);
 
           if (!ws) {
-            console.log(`[Audio Processor] Opening Vosk stream for session: ${sessionId}`);
+            logger.info(`[Audio Processor] Opening Vosk stream for session`, { sessionId });
             ws = new WebSocket('ws://localhost:2700');
 
             ws.on('message', async (data) => {
               const response = JSON.parse(data.toString());
               // Vosk returns { text: "final transcript" } for complete sentences
               if (response.text && response.text.trim().length > 0) {
-                console.log(`[Vosk] Final Transcript for ${sessionId}: ${response.text}`);
+                logger.debug(`[Vosk] Final Transcript`, { sessionId, text: response.text });
                 await this.broadcastTranscript(sessionId, response.text);
               }
             });
@@ -117,7 +139,7 @@ export class Orchestrator {
             });
 
             ws.on('error', (err) => {
-              console.error(`[Vosk Error] Session ${sessionId}:`, err);
+              logger.error(`[Vosk Error] Session ${sessionId}`, { error: err, sessionId });
             });
 
             this.activeVoskSessions.set(sessionId, ws);

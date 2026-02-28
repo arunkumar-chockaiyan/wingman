@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, PhoneOff, Activity, Terminal } from 'lucide-react';
+import { Mic, PhoneOff, Activity, Signal } from 'lucide-react';
 
 interface ControlPanelProps {
     isCalling: boolean;
@@ -8,78 +8,101 @@ interface ControlPanelProps {
     onStopCall: () => void;
 }
 
-export const ControlPanel: React.FC<ControlPanelProps> = ({ isCalling, socketConnected, onStartCall, onStopCall }) => {
+export const ControlPanel: React.FC<ControlPanelProps> = ({
+    isCalling,
+    socketConnected,
+    onStartCall,
+    onStopCall
+}) => {
     return (
-        <div className="lg:col-span-1 flex flex-col gap-4 overflow-y-auto">
+        <div className="flex flex-col gap-4">
             {/* Control Block */}
-            <div className="bg-[var(--bg-panel)] border border-[var(--border-industrial)] p-4 flex flex-col shrink-0">
-                <div className="flex items-center gap-2 border-b border-[var(--border-industrial)] pb-2 mb-4">
-                    <Terminal size={16} className="text-[var(--text-muted)]" />
-                    <h2 className="font-display font-bold uppercase text-[var(--text-muted)] text-sm tracking-widest">
-                        Comms Link
+            <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-5">
+                    <Signal size={16} className="text-indigo-500" />
+                    <h2 className="font-bold uppercase text-slate-900 text-[11px] tracking-widest">
+                        Communication Hub
                     </h2>
                 </div>
 
                 {!isCalling ? (
                     <button
                         onClick={onStartCall}
-                        className="w-full bg-[var(--bg-panel-hover)] hover:bg-[var(--border-industrial)] border border-[var(--border-light)] hover:border-[var(--accent-live)] text-[var(--text-primary)] transition-colors py-4 px-4 flex items-center justify-between group"
+                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-4 px-4 flex items-center justify-between group transition-all shadow-lg shadow-indigo-100 active:scale-[0.98]"
                     >
                         <div className="flex items-center gap-3">
-                            <Mic size={18} className="text-[var(--text-muted)] group-hover:text-[var(--accent-live)]" />
-                            <span className="font-display font-bold uppercase tracking-wider text-sm">Initialize Sec-Link</span>
+                            <Mic size={18} />
+                            <span className="font-bold text-sm">Initialize Sec-Link</span>
                         </div>
-                        <span className="text-[var(--text-muted)] text-xs group-hover:text-[var(--accent-live)] font-bold">INIT</span>
+                        <span className="bg-indigo-500/20 px-2 py-0.5 rounded text-[10px] font-black tracking-tighter">INIT</span>
                     </button>
                 ) : (
                     <button
                         onClick={onStopCall}
-                        className="w-full bg-[var(--accent-alert-dim)] hover:bg-[var(--accent-alert)] border border-[var(--accent-alert)] text-[var(--accent-alert)] hover:text-white transition-all py-4 px-4 flex items-center justify-between group"
+                        className="w-full bg-rose-500 hover:bg-rose-600 text-white rounded-xl py-4 px-4 flex items-center justify-between group transition-all shadow-lg shadow-rose-100 active:scale-[0.98]"
                     >
                         <div className="flex items-center gap-3">
                             <PhoneOff size={18} />
-                            <span className="font-display font-bold uppercase tracking-wider text-sm flex-1 text-left">Terminate Link</span>
+                            <span className="font-bold text-sm">Terminate Link</span>
                         </div>
-                        <span className="font-bold text-[10px] border border-current px-1 hidden md:block uppercase tracking-widest">Halt</span>
+                        <span className="bg-rose-400/20 px-2 py-0.5 rounded text-[10px] font-black tracking-tighter">HALT</span>
                     </button>
                 )}
 
-                <div className="mt-6 flex flex-col gap-2">
-                    <div className="flex justify-between items-end">
-                        <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-widest border-b border-[var(--border-industrial)] flex-1 pb-1 mr-2">Audio Stream</span>
-                        <span className={`text-xs ${isCalling ? 'text-[var(--accent-live)]' : 'text-[var(--text-muted)]'}`}>
-                            {isCalling ? 'OPUS // 48KHz' : 'OFFLINE'}
-                        </span>
+                <div className="mt-6 space-y-3">
+                    <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-slate-400 font-semibold uppercase tracking-wider">Audio Uplink</span>
+                        <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${isCalling ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+                            <span className={`font-bold ${isCalling ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                {isCalling ? 'OPUS // 48KHz' : 'OFFLINE'}
+                            </span>
+                        </div>
                     </div>
-                    <div className="flex justify-between items-end">
-                        <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-widest border-b border-[var(--border-industrial)] flex-1 pb-1 mr-2">Socket.IO</span>
-                        <span className={`text-xs ${socketConnected ? 'text-[var(--accent-live)]' : 'text-[var(--accent-alert)]'}`}>
-                            {socketConnected ? 'CONNECTED' : 'DISCONNECTED'}
-                        </span>
+                    <div className="flex justify-between items-center text-[11px]">
+                        <span className="text-slate-400 font-semibold uppercase tracking-wider">Socket Status</span>
+                        <div className="flex items-center gap-2">
+                            <span className={`w-2 h-2 rounded-full ${socketConnected ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                            <span className={`font-bold ${socketConnected ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                {socketConnected ? 'CONNECTED' : 'TERMINATED'}
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            {/* Telemetry Mock Block */}
-            <div className="bg-[var(--bg-panel)] border border-[var(--border-industrial)] p-4 flex-1 hidden lg:flex flex-col min-h-0">
-                <div className="flex items-center gap-2 border-b border-[var(--border-industrial)] pb-2 mb-4 shrink-0">
-                    <Activity size={16} className="text-[var(--text-muted)]" />
-                    <h2 className="font-display font-bold uppercase text-[var(--text-muted)] text-sm tracking-widest">
-                        Signal Analysis
+            {/* Signal Telemetry Panel */}
+            <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-xl flex-1 hidden lg:flex flex-col min-h-0">
+                <div className="flex items-center gap-2 border-b border-slate-800 pb-3 mb-4 shrink-0">
+                    <Activity size={16} className="text-indigo-400" />
+                    <h2 className="font-bold uppercase text-slate-300 text-[11px] tracking-widest">
+                        Neural Telemetry
                     </h2>
                 </div>
-                <div className="flex-1 flex flex-col justify-end text-[10px] text-[var(--text-muted)] opacity-50 space-y-1 overflow-hidden">
+                <div className="flex-1 flex flex-col justify-end text-[10px] font-mono text-indigo-300/60 space-y-1.5 overflow-hidden">
                     {isCalling ? (
                         <>
-                            <p>&gt; Audio input buffer active</p>
-                            <p>&gt; Streaming chunks (500ms)</p>
-                            <p>&gt; Awaiting VAD detection...</p>
-                            <p>&gt; Processing multi-agent pipeline</p>
+                            <p className="flex items-center gap-2">
+                                <span className="text-indigo-500">›</span>
+                                Audio stream high-fidelity active
+                            </p>
+                            <p className="flex items-center gap-2 text-indigo-200">
+                                <span className="text-indigo-500 animate-pulse">●</span>
+                                Chunks streaming via Socket.IO
+                            </p>
+                            <p className="flex items-center gap-2">
+                                <span className="text-indigo-500">›</span>
+                                VAD detection sensitivity: 0.85
+                            </p>
+                            <p className="flex items-center gap-2">
+                                <span className="text-indigo-500">›</span>
+                                Awaiting multi-agent synthesis...
+                            </p>
                         </>
                     ) : (
                         <>
-                            <p>&gt; System ready.</p>
-                            <p>&gt; Awaiting initialization.</p>
+                            <p className="text-slate-500 italic font-sans">&gt; Diagnostic relay standby</p>
+                            <p className="text-slate-500 italic font-sans">&gt; System initialized v2.4.0</p>
                         </>
                     )}
                 </div>

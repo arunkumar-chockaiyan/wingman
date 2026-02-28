@@ -4,6 +4,7 @@ import { Header } from './components/Header';
 import { ControlPanel } from './components/ControlPanel';
 import { SimulatorPanel } from './components/SimulatorPanel';
 import { IntelligenceStream } from './components/IntelligenceStream';
+import { ConversationTranscript } from './components/ConversationTranscript';
 
 const App: React.FC = () => {
     const {
@@ -11,6 +12,7 @@ const App: React.FC = () => {
         isSimulating,
         sessionId,
         insights,
+        transcripts,
         socketConnected,
         startCall,
         startSimulation,
@@ -18,10 +20,12 @@ const App: React.FC = () => {
     } = useWingmanSession();
 
     return (
-        <div className="min-h-screen p-4 md:p-8 flex flex-col h-screen">
-            <Header sessionId={sessionId} isCalling={isCalling} />
-            <main className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 md:gap-6 min-h-0 overflow-hidden">
-                <div className="lg:col-span-1 flex flex-col gap-4 overflow-y-auto">
+        <div className="min-h-screen bg-slate-50 p-4 md:p-6 lg:p-8 flex flex-col h-screen overflow-hidden">
+            <Header sessionId={sessionId} isCalling={isCalling || isSimulating} />
+
+            <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
+                {/* Column 1: Controls & Simulations (3/12) */}
+                <aside className="lg:col-span-3 flex flex-col gap-6 overflow-y-auto pr-1 custom-scroll">
                     <ControlPanel
                         isCalling={isCalling || isSimulating}
                         socketConnected={socketConnected}
@@ -32,8 +36,23 @@ const App: React.FC = () => {
                         onSimulate={startSimulation}
                         isSimulating={isSimulating}
                     />
-                </div>
-                <IntelligenceStream insights={insights} isCalling={isCalling || isSimulating} />
+                </aside>
+
+                {/* Column 2: Live Transcript (6/12) */}
+                <section className="lg:col-span-6 flex flex-col min-h-0">
+                    <ConversationTranscript
+                        transcripts={transcripts}
+                        isCalling={isCalling || isSimulating}
+                    />
+                </section>
+
+                {/* Column 3: AI Insights (3/12) */}
+                <aside className="lg:col-span-3 flex flex-col min-h-0 overflow-hidden">
+                    <IntelligenceStream
+                        insights={insights}
+                        isCalling={isCalling || isSimulating}
+                    />
+                </aside>
             </main>
         </div>
     );

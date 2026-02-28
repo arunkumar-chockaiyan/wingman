@@ -1,6 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import { trace, context, SpanStatusCode } from '@opentelemetry/api';
 import cors from 'cors';
 import * as googleTTS from 'google-tts-api';
 import { Orchestrator } from './services/kafkaOrchestrator';
@@ -8,6 +9,7 @@ import { CallSessionService } from './services/callSessionService';
 import { UserRepository } from './repositories/UserRepository';
 import { CallSessionRepository } from './repositories/CallSessionRepository';
 import { RecommendationRepository } from './repositories/RecommendationRepository';
+import logger from './utils/logger';
 
 const app = express();
 const httpServer = createServer(app);
@@ -54,7 +56,7 @@ app.post('/api/simulate-tts', async (req, res) => {
         // For simplicity we return them directly so the frontend can stitch and play them back to back
         res.json({ audioChunks: audioResults });
     } catch (error) {
-        console.error("TTS Error:", error);
+        logger.error("TTS Error", { error });
         res.status(500).json({ error: 'Failed to generate TTS' });
     }
 });
@@ -68,35 +70,49 @@ export async function bootstrap() {
 
     // Listen for insights from Kafka and broadcast to specific clients
     await orchestrator.startInsightListener((sessionId, insight) => {
-        console.log(`Sending insight to session ${sessionId}:`, insight.content);
+        logger.info(`Sending insight to session ${sessionId}`, { sessionId, insight: insight.content });
         // We broadcast to the room named after sessionId
         io.to(sessionId).emit('insight', insight);
     });
 
+    // Listen for transcripts and broadcast
+    await orchestrator.startTranscriptListener((sessionId, data) => {
+        io.to(sessionId).emit('transcript', data);
+    });
+
     io.on('connection', (socket) => {
-        console.log('Client connected:', socket.id);
+        logger.info('Client connected', { socketId: socket.id });
 
         // Initial session setup
         socket.on('start-call', async (data: { sessionId?: string, title: string }) => {
-            try {
-                const title = data.title || 'Untitled Call';
+            const tracer = trace.getTracer('wingman-websocket');
+            await tracer.startActiveSpan('socket.start-call', async (span) => {
+                try {
+                    const title = data.title || 'Untitled Call';
+                    span.setAttribute('call.title', title);
 
-                // Create a new CallSession in the DB with the default admin user
-                const session = await callSessionService.startSession(title);
-                const sessionId = session.id;
+                    // Create a new CallSession in the DB with the default admin user
+                    const session = await callSessionService.startSession(title);
+                    const sessionId = session.id;
+                    span.setAttribute('call.session_id', sessionId);
 
-                console.log(`Call session created in DB: ${sessionId} - ${title}`);
+                    logger.info(`Call session created in DB`, { sessionId, title });
 
-                // Join a room named after the DB session ID
-                socket.join(sessionId);
-                activeTranscripts.set(sessionId, '');
+                    // Join a room named after the DB session ID
+                    socket.join(sessionId);
+                    activeTranscripts.set(sessionId, '');
 
-                // Send the DB-assigned session ID back to the client
-                socket.emit('session-started', { sessionId, title });
-            } catch (error) {
-                console.error('Error starting call session:', error);
-                socket.emit('error', { message: 'Failed to start call session' });
-            }
+                    // Send the DB-assigned session ID back to the client
+                    socket.emit('session-started', { sessionId, title });
+                    span.end();
+                } catch (error) {
+                    span.recordException(error as Error);
+                    span.setStatus({ code: SpanStatusCode.ERROR });
+                    logger.error('Error starting call session', { error });
+                    socket.emit('error', { message: 'Failed to start call session' });
+                    span.end();
+                }
+            });
         });
 
         // Handle streaming audio chunks
@@ -110,35 +126,52 @@ export async function bootstrap() {
 
         // Manual feedback handle
         socket.on('feedback', async (data: { sessionId: string, id: string, status: string }) => {
-            try {
-                const status = data.status === 'liked' ? 'LIKED' : 'DISLIKED';
-                await callSessionService.recordFeedback(data.id, status as 'LIKED' | 'DISLIKED');
-                console.log(`Feedback persisted for ${data.id}: ${status}`);
-            } catch (error) {
-                console.error('Error recording feedback:', error);
-            }
+            const tracer = trace.getTracer('wingman-websocket');
+            await tracer.startActiveSpan('socket.feedback', async (span) => {
+                try {
+                    const status = data.status === 'liked' ? 'LIKED' : 'DISLIKED';
+                    span.setAttribute('feedback.id', data.id);
+                    span.setAttribute('feedback.status', status);
+
+                    await callSessionService.recordFeedback(data.id, status as 'LIKED' | 'DISLIKED');
+                    logger.info(`Feedback persisted`, { recommendationId: data.id, status });
+                    span.end();
+                } catch (error) {
+                    span.recordException(error as Error);
+                    logger.error('Error recording feedback', { error });
+                    span.end();
+                }
+            });
         });
 
         // End call: persist the full transcript
         socket.on('end-call', async (data: { sessionId: string }) => {
-            try {
-                const { sessionId } = data;
-                const transcript = activeTranscripts.get(sessionId) || '';
-                await callSessionService.endSession(sessionId, transcript);
-                activeTranscripts.delete(sessionId);
-                console.log(`Call session ${sessionId} ended and persisted.`);
-            } catch (error) {
-                console.error('Error ending call session:', error);
-            }
+            const tracer = trace.getTracer('wingman-websocket');
+            await tracer.startActiveSpan('socket.end-call', async (span) => {
+                try {
+                    const { sessionId } = data;
+                    span.setAttribute('call.session_id', sessionId);
+
+                    const transcript = activeTranscripts.get(sessionId) || '';
+                    await callSessionService.endSession(sessionId, transcript);
+                    activeTranscripts.delete(sessionId);
+                    logger.info(`Call session ended and persisted`, { sessionId });
+                    span.end();
+                } catch (error) {
+                    span.recordException(error as Error);
+                    logger.error('Error ending call session', { error });
+                    span.end();
+                }
+            });
         });
 
         socket.on('disconnect', () => {
-            console.log('Client disconnected:', socket.id);
+            logger.info('Client disconnected', { socketId: socket.id });
         });
     });
 
     const PORT = process.env.PORT || 3001;
     httpServer.listen(PORT, () => {
-        console.log(`Wingman Backend running on port ${PORT}`);
+        logger.info(`Wingman Backend running on port ${PORT}`);
     });
 }

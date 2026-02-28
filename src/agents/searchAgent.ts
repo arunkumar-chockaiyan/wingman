@@ -2,6 +2,7 @@ import { Kafka } from 'kafkajs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { tavily } from '@tavily/core';
 import { AGENT_PROMPTS } from '../prompts/agentTemplates';
+import logger from '../utils/logger';
 
 const kafka = new Kafka({ brokers: [process.env.KAFKA_BROKER || 'localhost:9092'] });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
@@ -70,7 +71,7 @@ export class SearchAgent {
 
             return summaryResult.response.text();
         } catch (error) {
-            console.error("Search Agent Error:", error);
+            logger.error("Search Agent Error", { error });
             return null;
         }
     }
