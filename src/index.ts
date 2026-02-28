@@ -5,35 +5,30 @@ import { SearchAgent } from './agents/searchAgent';
 import { setupKafkaTopics } from './services/kafkaOrchestrator';
 
 async function start() {
-    try {
-        console.log("Setting up Kafka topics...");
-        await setupKafkaTopics();
+  try {
+    console.info('Setting up Kafka topics...');
+    await setupKafkaTopics();
 
-        console.log("Initializing Agent Consumers...");
+    console.info('Initializing Agent Consumers...');
 
-        const searchAgent = new SearchAgent();
+    const searchAgent = new SearchAgent();
 
-        // Initialize all agent consumer connections
-        await Promise.all([
-            salesCoachAgent.init(),
-            qaAgent.init(),
-            searchAgent.init()
-        ]);
+    // Initialize all agent consumer connections
+    await Promise.all([salesCoachAgent.init(), qaAgent.init(), searchAgent.init()]);
 
-        console.log("Starting Agent Consumers...");
-        // Start processing messages
-        salesCoachAgent.start();
-        qaAgent.start();
-        searchAgent.start();
+    console.info('Starting Agent Consumers...');
+    // Start processing messages
+    salesCoachAgent.start();
+    qaAgent.start();
+    searchAgent.start();
 
-        console.log("Initializing Express server and Ingestion Consumers...");
-        // Start the web server and its specific Kafka consumers
-        await bootstrap();
-
-    } catch (error) {
-        console.error("Failed to start application:", error);
-        process.exit(1);
-    }
+    console.info('Initializing Express server and Ingestion Consumers...');
+    // Start the web server and its specific Kafka consumers
+    await bootstrap();
+  } catch (error) {
+    console.error('Failed to start application:', error);
+    process.exit(1);
+  }
 }
 
 start();
