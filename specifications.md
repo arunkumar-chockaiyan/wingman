@@ -10,7 +10,7 @@
     - **Message Bus**: **Apache Kafka** (High-throughput event streaming).
     - **Database**: PostgreSQL with **Prisma ORM**.
     - **Speech-to-Text (STT)**: Vosk (Self-hosted via Docker, low-latency WebSocket streaming).
-    - **Agent Orchestrator**: Kafka-based decoupled consumers.
+    - **Agent Orchestrator**: Kafka-based decoupled consumers (Consumer Groups for horizontal scaling).
     - **LLM**: Gemini 1.5 Flash (Core reasoning & synthesis).
     - **Search**: Tavily API (Real-time web retrieval).
     - **TTS Simulation**: Google TTS API.
@@ -48,8 +48,8 @@ graph TD
 - **Live Call Interface**:
     - **Audio Streaming**: Uses `MediaRecorder` API to send audio chunks to the backend via Socket.io.
     - **Visual Waveform**: Real-time visualization of audio input.
-    - **Streaming Transcript**: Displays the conversation as it happens.
-    - **Live Insights**: Real-time recommendations from various agents.
+    - **Intelligence Stream**: Displays real-time recommendations and insights from various agents.
+    - **Simulator Panel**: Allows users to simulate a call by providing text which is converted to audio and processed by the system.
     - **Feedback Loop**: "Like" or "Dislike" buttons on each recommendation to improve the model.
 - **Call History**: Searchable database of past calls with summaries and key moments.
 
@@ -57,8 +57,8 @@ graph TD
 - **Kafka Orchestrator**: Manages topics (`raw-audio`, `transcripts`, `agent-insights`) and routes data between services.
 - **Audio Processor**: Consumes `raw-audio` from Kafka and streams it to Vosk STT via WebSockets.
 - **Agentic Analysis Layer**:
-    - **Sales Coach Agent**: Analyzes transcripts for tone and objection handling.
-    - **Search Agent**: Uses Tavily to research topics mentioned in the transcript.
+    - **Sales Coach Agent**: Analyzes transcripts for tone and objection handling based on predefined prompts.
+    - **Search Agent**: A 3-step process: (1) Generate search query with LLM, (2) Search with Tavily, (3) Summarize results with LLM.
     - **Q&A Agent**: Provides answers to questions detected in the transcript.
 - **Persistence**: Stores users, call sessions, and recommendations in PostgreSQL using Prisma.
 
@@ -93,20 +93,22 @@ graph TD
 
 | Event Name | Direction | Payload | Description |
 |---|---|---|---|
-| `start-call` | Client -> Server | `{ title: string }` | Initializes a new session |
+| `start-call` | Client -> Server | `{ sessionId?: string, title: string }` | Initializes a new session |
 | `session-started`| Server -> Client | `{ sessionId: string, title: string }` | Confirms session creation |
 | `audio-chunk` | Client -> Server | `{ sessionId: string, chunk: Buffer }` | Raw audio data chunks |
-| `transcript` | Server -> Client | `{ text: string, isFinal: bool }` | Real-time transcription updates |
-| `insight` | Server -> Client | `{ id: uuid, content: string, category: string }` | AI-generated recommendation |
-| `feedback` | Client -> Server | `{ id: uuid, status: 'liked'/'disliked' }` | User feedback on insight |
+| `insight` | Server -> Client | `{ id: uuid, content: string, category: string, agentId: string }` | AI-generated recommendation |
+| `feedback` | Client -> Server | `{ sessionId: string, id: string, status: 'liked' }` | User feedback on insight |
 | `end-call` | Client -> Server | `{ sessionId: string }` | Finalizes and saves the session |
 
+*Note: Transcription is currently internal to the backend orchestration and not streamed back to the client in the current implementation.*
+
 ## 7. Performance & Scalability
-- **Kafka**: Ensures high throughput and decoupling of agents from the main ingestion pipeline.
+- **Kafka Consumer Groups**: Agents (Sales Coach, Search, Q&A) are organized into separate Kafka consumer groups (`sales-coach-group`, `search-agent-group`, `qa-agent-group`), allowing for independent horizontal scaling.
 - **Vosk**: Self-hosted STT allows for low-latency processing without external API overhead for the transcription itself.
 - **Gemini 1.5 Flash**: Optimized for speed and cost while providing sufficient reasoning for real-time triggers.
 
 ## 8. Future Roadmap
+- Streaming transcripts to the frontend for real-time visual feedback.
 - Integration with CRMs (Salesforce, HubSpot).
 - Real-time sentiment analysis.
 - Multi-speaker identification (Diarization).
