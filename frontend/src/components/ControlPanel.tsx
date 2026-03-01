@@ -21,7 +21,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
                 <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-5">
                     <Signal size={16} className="text-indigo-500" />
                     <h2 className="font-bold uppercase text-slate-900 text-[11px] tracking-widest">
-                        Call
+                        Simulate a Sales Conversation
                     </h2>
                 </div>
 

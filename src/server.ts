@@ -91,8 +91,8 @@ export async function bootstrap() {
                     const title = data.title || 'Untitled Call';
                     span.setAttribute('call.title', title);
 
-                    // Create a new CallSession in the DB with the default admin user
-                    const session = await callSessionService.startSession(title);
+                    // Create a new CallSession in the DB — use the client-provided UUID
+                    const session = await callSessionService.startSession(title, data.sessionId);
                     const sessionId = session.id;
                     span.setAttribute('call.session_id', sessionId);
 
@@ -159,6 +159,7 @@ export async function bootstrap() {
                     span.end();
                 } catch (error) {
                     span.recordException(error as Error);
+                    //logger.info('Error ending call session', { error }); //TODO: Remove this
                     logger.error('Error ending call session', { error });
                     span.end();
                 }

@@ -13,9 +13,9 @@ export class CallSessionService {
     /**
      * Ensures the default admin user exists and creates a new call session.
      */
-    async startSession(title: string): Promise<CallSession> {
+    async startSession(title: string, id?: string): Promise<CallSession> {
         const adminUser = await this.userRepo.upsertByEmail('admin@wingman.local', 'Admin');
-        return this.sessionRepo.create(adminUser.id, title);
+        return this.sessionRepo.create(adminUser.id, title, id);
     }
 
     /**

@@ -21,11 +21,11 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
                 <Cpu size={16} className="text-indigo-500" />
                 <h2 className="font-bold uppercase text-slate-900 text-[11px] tracking-widest">
-                    Simulate Call
+                    Replay Sales Call Transcript
                 </h2>
             </div>
             <p className="text-[10px] text-slate-400 mb-4 leading-relaxed">
-                Copy any transcript below to replay a call.
+                Copy any transcript below to replay a sales call.
             </p>
 
             <div className="relative group flex-1 flex flex-col">

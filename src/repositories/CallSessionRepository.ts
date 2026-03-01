@@ -2,9 +2,9 @@ import { prisma } from '../config/prismaClient';
 import { CallSession } from '@prisma/client';
 
 export class CallSessionRepository {
-    async create(userId: string, title: string): Promise<CallSession> {
+    async create(userId: string, title: string, id?: string): Promise<CallSession> {
         return prisma.callSession.create({
-            data: { userId, title },
+            data: { id, userId, title },
         });
     }
 

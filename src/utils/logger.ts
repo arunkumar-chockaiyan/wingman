@@ -1,4 +1,5 @@
 import winston from 'winston';
+import LokiTransport from 'winston-loki';
 import { trace, context } from '@opentelemetry/api';
 
 const { combine, timestamp, json, printf, colorize } = winston.format;
@@ -23,15 +24,30 @@ const otelEnrichment = winston.format((info) => {
     return info;
 });
 
+const lokiHost = process.env.LOKI_HOST || 'http://localhost:3100';
+
 const logger = winston.createLogger({
     level: process.env.LOG_LEVEL || 'info',
     format: combine(
         timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
         otelEnrichment(),
-        process.env.NODE_ENV === 'production' ? json() : combine(colorize(), localFormat)
+        json()
     ),
     transports: [
-        new winston.transports.Console(),
+        // Console transport with pretty-printing for dev
+        new winston.transports.Console({
+            format: combine(colorize(), localFormat),
+        }),
+        // Loki transport — pushes logs to Grafana Loki
+        new LokiTransport({
+            host: lokiHost,
+            labels: { app: 'wingman-backend', qa: 'test' },
+            json: true,
+            batching: false,
+            interval: 5,
+            levelLabel: 'level',
+            onConnectionError: (err: Error) => console.error('[Loki] Connection error:', err),
+        } as any),
     ],
 });
 

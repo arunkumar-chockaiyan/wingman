@@ -16,14 +16,8 @@ export const useWingmanSession = () => {
     const [transcripts, setTranscripts] = useState<TranscriptChunk[]>([]);
     const [socketConnected, setSocketConnected] = useState(false);
 
-    const [sessionId] = useState<string>(() => {
-        let storedId = localStorage.getItem('wingman_session_id');
-        if (!storedId) {
-            storedId = generateUUID();
-            localStorage.setItem('wingman_session_id', storedId);
-        }
-        return storedId;
-    });
+    const sessionIdRef = useRef<string>('');
+    const [sessionId, setSessionId] = useState<string>('');
 
     const socketRef = useRef<Socket | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -54,9 +48,7 @@ export const useWingmanSession = () => {
         socket.on('connect', () => {
             console.log('Connected to server');
             setSocketConnected(true);
-            if (sessionId) {
-                socket.emit('start-call', { sessionId, title: 'Resumed Session' });
-            }
+            // Do NOT auto-start a session on reconnect — wait for explicit startCall
         });
 
         socket.on('disconnect', () => {
@@ -73,9 +65,14 @@ export const useWingmanSession = () => {
     }, [sessionId]);
 
     const _startRecordingStream = useCallback((stream: MediaStream) => {
+        // Generate a fresh UUID for every new call
+        const newSessionId = generateUUID();
+        sessionIdRef.current = newSessionId;
+        setSessionId(newSessionId);
+
         setIsCalling(true);
         if (socketRef.current) {
-            socketRef.current.emit('start-call', { sessionId, title: 'New Sales Call' });
+            socketRef.current.emit('start-call', { sessionId: newSessionId, title: 'New Sales Call' });
         }
 
         try {
@@ -86,7 +83,7 @@ export const useWingmanSession = () => {
             mediaRecorder.ondataavailable = (event) => {
                 if (event.data.size > 0 && socketRef.current) {
                     socketRef.current.emit('audio-chunk', {
-                        sessionId,
+                        sessionId: sessionIdRef.current,  // FIX 1: use ref, not stale state
                         chunk: event.data
                     });
                 }
@@ -98,7 +95,7 @@ export const useWingmanSession = () => {
             setIsCalling(false);
             setIsSimulating(false);
         }
-    }, [sessionId]);
+    }, []);  // FIX 2: no state deps — all values accessed via refs
 
     const startCall = useCallback(async () => {
         try {
@@ -157,8 +154,11 @@ export const useWingmanSession = () => {
             const captureStream = (audioEl as any).captureStream || (audioEl as any).mozCaptureStream;
 
             if (captureStream) {
+                // FIX 3: capture stream BEFORE play so recordings have live tracks from the start
                 const stream = captureStream.call(audioEl);
                 _startRecordingStream(stream);
+                // Small delay to ensure recorder has attached before first audio data arrives
+                await new Promise<void>(resolve => setTimeout(resolve, 50));
                 await audioEl.play();
             } else {
                 console.error("captureStream API not supported in this browser.");
@@ -184,9 +184,9 @@ export const useWingmanSession = () => {
         }
 
         if (socketRef.current) {
-            socketRef.current.emit('end-call', { sessionId });
+            socketRef.current.emit('end-call', { sessionId: sessionIdRef.current });
         }
-    }, [sessionId]);
+    }, []);
 
     return {
         isCalling,
