@@ -180,7 +180,17 @@ export const useWingmanSession = () => {
                 // Instead of starting synchronously, we wait for the audio to actually start playing
                 // to guarantee that the stream has active tracks.
                 audioEl.onplay = () => {
-                    _startRecordingStream(stream);
+                    if (stream.getAudioTracks().length > 0) {
+                        _startRecordingStream(stream);
+                    } else {
+                        // Some browser engines wait a micro-tick to attach the tracks
+                        stream.onaddtrack = () => {
+                            if (stream.getAudioTracks().length > 0) {
+                                _startRecordingStream(stream);
+                                stream.onaddtrack = null; // Clean up
+                            }
+                        };
+                    }
                 };
 
                 await audioEl.play();
