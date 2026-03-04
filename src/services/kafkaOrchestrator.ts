@@ -113,12 +113,21 @@ export class Orchestrator {
    * Starts processing raw audio chunks (e.g., streaming to STT provider)
    */
   async startAudioProcessor() {
+    // Map to track when each session's Vosk WS is ready (config sent)
+    const voskReadyPromises = new Map<string, Promise<void>>();
+
     await this.audioConsumer.run({
       eachMessage: async ({ topic, partition, message }) => {
         const sessionId = message.key?.toString();
         const chunk = message.value;
 
         if (sessionId && chunk) {
+          logger.debug(`[Audio Processor] Received chunk from Kafka`, {
+            sessionId,
+            chunkSize: chunk.length,
+            isBuffer: Buffer.isBuffer(chunk)
+          });
+
           let ws = this.activeVoskSessions.get(sessionId);
 
           if (!ws) {
@@ -126,37 +135,56 @@ export class Orchestrator {
             const voskUrl = process.env.VOSK_URL || 'ws://localhost:2700';
             ws = new WebSocket(voskUrl);
 
-            ws.on('open', () => {
-              logger.info(`[Audio Processor] Vosk connection opened`, { sessionId });
-              ws?.send(JSON.stringify({ config: { sample_rate: 16000 } }));
+            // Store immediately to prevent duplicate connections from concurrent messages
+            this.activeVoskSessions.set(sessionId, ws);
+
+            // Create a promise that resolves once config is sent and Vosk is ready
+            const readyPromise = new Promise<void>((resolve) => {
+              ws!.on('open', () => {
+                logger.info(`[Audio Processor] Vosk connection opened`, { sessionId });
+                ws?.send(JSON.stringify({ config: { sample_rate: 16000 } }));
+                resolve();
+              });
             });
+            voskReadyPromises.set(sessionId, readyPromise);
 
             ws.on('message', async (data) => {
               const response = JSON.parse(data.toString());
+              logger.info(`[Vosk] message received`, { sessionId, data });
+              // Log all Vosk responses for debugging
+              if (response.partial !== undefined) {
+                logger.debug(`[Vosk] Partial`, { sessionId, partial: response.partial });
+              }
               // Vosk returns { text: "final transcript" } for complete sentences
               if (response.text && response.text.trim().length > 0) {
-                logger.debug(`[Vosk] Final Transcript`, { sessionId, text: response.text });
+                logger.info(`[Vosk] Final Transcript`, { sessionId, text: response.text });
                 await this.broadcastTranscript(sessionId, response.text);
               }
             });
 
             ws.on('close', () => {
               this.activeVoskSessions.delete(sessionId);
+              voskReadyPromises.delete(sessionId);
             });
 
             ws.on('error', (err) => {
               logger.error(`[Vosk Error] Session ${sessionId}`, { error: err, sessionId });
             });
-
-            this.activeVoskSessions.set(sessionId, ws);
           }
 
-          // Buffer until the connection is open
+          // Wait until config message has been sent, then send the audio chunk
+          const readyPromise = voskReadyPromises.get(sessionId);
+          if (readyPromise) {
+            await readyPromise;
+          }
+
           if (ws.readyState === WebSocket.OPEN) {
-            // logger.info(`[Audio Processor] Sending chunk to Vosk`, { sessionId });
             ws.send(chunk);
-          } else if (ws.readyState === WebSocket.CONNECTING) {
-            ws.once('open', () => ws?.send(chunk));
+          } else {
+            logger.warn(`[Audio Processor] Vosk WS not open, dropping chunk`, {
+              sessionId,
+              readyState: ws.readyState
+            });
           }
         }
       }

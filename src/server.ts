@@ -116,12 +116,35 @@ export async function bootstrap() {
         });
 
         // Handle streaming audio chunks
-        socket.on('audio-chunk', async (data: { sessionId: string, chunk: Buffer }) => {
+        socket.on('audio-chunk', async (data: { sessionId: string, chunk: any }) => {
             const { sessionId, chunk } = data;
-            if (!sessionId) return;
+            if (!sessionId || !chunk) return;
+
+            // Socket.IO can deliver ArrayBuffer/Buffer in various forms depending on
+            // whether it was embedded in a JSON payload vs sent as binary.
+            // Normalize to a proper Node.js Buffer before passing to Kafka.
+            let audioBuffer: Buffer;
+            if (Buffer.isBuffer(chunk)) {
+                audioBuffer = chunk;
+            } else if (chunk instanceof ArrayBuffer) {
+                audioBuffer = Buffer.from(chunk);
+            } else if (chunk?.type === 'Buffer' && Array.isArray(chunk.data)) {
+                // Socket.IO JSON-serialized Buffer: { type: 'Buffer', data: [b1, b2, ...] }
+                audioBuffer = Buffer.from(chunk.data);
+            } else if (typeof chunk === 'object' && chunk.byteLength !== undefined) {
+                // TypedArray or ArrayBuffer-like
+                audioBuffer = Buffer.from(chunk);
+            } else {
+                logger.warn('Received unknown audio chunk format', {
+                    sessionId,
+                    chunkType: typeof chunk,
+                    constructor: chunk?.constructor?.name
+                });
+                return;
+            }
 
             // Pipeline: Client -> Socket -> Kafka -> Transcription Service
-            await orchestrator.handleAudioChunk(sessionId, chunk);
+            await orchestrator.handleAudioChunk(sessionId, audioBuffer);
         });
 
         // Manual feedback handle

@@ -65,7 +65,7 @@ export const useWingmanSession = () => {
         };
     }, [sessionId]);
 
-    const _startRecordingStream = useCallback(async (stream: MediaStream) => {
+    const _startRecordingStream = useCallback(async (stream: MediaStream, muteOutput: boolean = true) => {
         // Generate a fresh UUID for every new call
         const newSessionId = generateUUID();
         sessionIdRef.current = newSessionId;
@@ -82,10 +82,12 @@ export const useWingmanSession = () => {
                 return;
             }
 
-            // Create AudioContext specifically at 16kHz for Vosk
+            // Let the browser use its native sample rate (44100 or 48000 typically)
+            // The pcm-processor worklet handles downsampling to 16kHz for Vosk
             const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            const context = new AudioContextClass({ sampleRate: 16000 });
+            const context = new AudioContextClass();
             audioContextRef.current = context;
+            console.log(`[AudioContext] Created with sample rate: ${context.sampleRate}Hz`);
 
             const source = context.createMediaStreamSource(stream);
 
@@ -105,23 +107,34 @@ export const useWingmanSession = () => {
                 });
             };
 
-            // Connect source -> worklet -> muted gain -> destination
+            // 1. Route actual audio to speakers (muting applied if during real call)
             const gainNode = context.createGain();
-            gainNode.gain.value = 0;
-            source.connect(workletNode);
-            workletNode.connect(gainNode);
+            gainNode.gain.value = muteOutput ? 0 : 1;
+            source.connect(gainNode);
             gainNode.connect(context.destination);
+
+            // 2. Route actual audio to worklet for backend transcription
+            const dumpNode = context.createGain();
+            dumpNode.gain.value = 0; // The worklet just needs to dump into a destination to stay alive
+            source.connect(workletNode);
+            workletNode.connect(dumpNode);
+            dumpNode.connect(context.destination);
+
+            // Safari/iOS requires resuming explicit contexts created off interactions
+            if (context.state === 'suspended') {
+                await context.resume();
+            }
         } catch (err) {
             console.error('Error starting audio processor:', err);
             setIsCalling(false);
             setIsSimulating(false);
         }
-    }, []);  // FIX 2: no state deps — all values accessed via refs
+    }, []);
 
     const startCall = useCallback(async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            _startRecordingStream(stream);
+            _startRecordingStream(stream, true);
         } catch (err) {
             console.error('Error accessing microphone:', err);
         }
@@ -181,12 +194,12 @@ export const useWingmanSession = () => {
                 // to guarantee that the stream has active tracks.
                 audioEl.onplay = () => {
                     if (stream.getAudioTracks().length > 0) {
-                        _startRecordingStream(stream);
+                        _startRecordingStream(stream, false);
                     } else {
                         // Some browser engines wait a micro-tick to attach the tracks
                         stream.onaddtrack = () => {
                             if (stream.getAudioTracks().length > 0) {
-                                _startRecordingStream(stream);
+                                _startRecordingStream(stream, false);
                                 stream.onaddtrack = null; // Clean up
                             }
                         };
