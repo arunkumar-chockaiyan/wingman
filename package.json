@@ -4,8 +4,10 @@
   "description": "Real-time sales assistant orchestration with Kafka and Prisma",
   "main": "dist/index.js",
   "scripts": {
-    "infra:up": "docker-compose -f docker-compose.yml up -d",
-    "infra:down": "docker-compose -f docker-compose.yml down",
+    "infra:up": "docker compose -f docker-compose.yml up -d",
+    "infra:down": "docker compose -f docker-compose.yml down",
+    "test": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration --pool=forks",
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
@@ -48,10 +50,13 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^20.0.0",
+    "@types/supertest": "^7.2.0",
     "@types/ws": "^8.18.1",
     "prisma": "^6.19.2",
     "puppeteer": "^24.37.5",
+    "supertest": "^7.2.2",
     "ts-node": "^10.9.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^4.0.18"
   }
 }
