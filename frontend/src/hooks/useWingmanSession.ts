@@ -20,7 +20,8 @@ export const useWingmanSession = () => {
     const [sessionId, setSessionId] = useState<string>('');
 
     const socketRef = useRef<Socket | null>(null);
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
     const isSimulatingRef = useRef(false);
@@ -64,7 +65,7 @@ export const useWingmanSession = () => {
         };
     }, [sessionId]);
 
-    const _startRecordingStream = useCallback((stream: MediaStream) => {
+    const _startRecordingStream = useCallback(async (stream: MediaStream) => {
         // Generate a fresh UUID for every new call
         const newSessionId = generateUUID();
         sessionIdRef.current = newSessionId;
@@ -76,22 +77,42 @@ export const useWingmanSession = () => {
         }
 
         try {
-            const options = { mimeType: 'audio/webm; codecs=opus' };
-            const mediaRecorder = new MediaRecorder(stream, options);
-            mediaRecorderRef.current = mediaRecorder;
+            // Ensure we don't duplicate
+            if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+                return;
+            }
 
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0 && socketRef.current) {
-                    socketRef.current.emit('audio-chunk', {
-                        sessionId: sessionIdRef.current,  // FIX 1: use ref, not stale state
-                        chunk: event.data
-                    });
-                }
+            // Create AudioContext specifically at 16kHz for Vosk
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const context = new AudioContextClass({ sampleRate: 16000 });
+            audioContextRef.current = context;
+
+            const source = context.createMediaStreamSource(stream);
+
+            // Load the worklet processor from the public folder
+            await context.audioWorklet.addModule('/pcm-processor.js');
+
+            const workletNode = new AudioWorkletNode(context, 'pcm-processor');
+            audioWorkletNodeRef.current = workletNode;
+
+            workletNode.port.onmessage = (event) => {
+                if (!socketRef.current) return;
+
+                // Node Socket.IO expects Buffer, which from client is sent as ArrayBuffer
+                socketRef.current.emit('audio-chunk', {
+                    sessionId: sessionIdRef.current,
+                    chunk: event.data
+                });
             };
 
-            mediaRecorder.start(500);
+            // Connect source -> worklet -> muted gain -> destination
+            const gainNode = context.createGain();
+            gainNode.gain.value = 0;
+            source.connect(workletNode);
+            workletNode.connect(gainNode);
+            gainNode.connect(context.destination);
         } catch (err) {
-            console.error('Error starting media recorder:', err);
+            console.error('Error starting audio processor:', err);
             setIsCalling(false);
             setIsSimulating(false);
         }
@@ -154,11 +175,14 @@ export const useWingmanSession = () => {
             const captureStream = (audioEl as any).captureStream || (audioEl as any).mozCaptureStream;
 
             if (captureStream) {
-                // FIX 3: capture stream BEFORE play so recordings have live tracks from the start
                 const stream = captureStream.call(audioEl);
-                _startRecordingStream(stream);
-                // Small delay to ensure recorder has attached before first audio data arrives
-                await new Promise<void>(resolve => setTimeout(resolve, 50));
+
+                // Instead of starting synchronously, we wait for the audio to actually start playing
+                // to guarantee that the stream has active tracks.
+                audioEl.onplay = () => {
+                    _startRecordingStream(stream);
+                };
+
                 await audioEl.play();
             } else {
                 console.error("captureStream API not supported in this browser.");
@@ -174,8 +198,14 @@ export const useWingmanSession = () => {
         setIsCalling(false);
         setIsSimulating(false);
 
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            mediaRecorderRef.current.stop();
+        if (audioWorkletNodeRef.current) {
+            audioWorkletNodeRef.current.disconnect();
+            audioWorkletNodeRef.current = null;
+        }
+
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            audioContextRef.current.close().catch(console.error);
+            audioContextRef.current = null;
         }
 
         if (audioPlayerRef.current) {

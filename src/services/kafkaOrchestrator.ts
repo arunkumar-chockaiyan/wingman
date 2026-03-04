@@ -123,7 +123,13 @@ export class Orchestrator {
 
           if (!ws) {
             logger.info(`[Audio Processor] Opening Vosk stream for session`, { sessionId });
-            ws = new WebSocket('ws://localhost:2700');
+            const voskUrl = process.env.VOSK_URL || 'ws://localhost:2700';
+            ws = new WebSocket(voskUrl);
+
+            ws.on('open', () => {
+              logger.info(`[Audio Processor] Vosk connection opened`, { sessionId });
+              ws?.send(JSON.stringify({ config: { sample_rate: 16000 } }));
+            });
 
             ws.on('message', async (data) => {
               const response = JSON.parse(data.toString());
@@ -147,6 +153,7 @@ export class Orchestrator {
 
           // Buffer until the connection is open
           if (ws.readyState === WebSocket.OPEN) {
+            // logger.info(`[Audio Processor] Sending chunk to Vosk`, { sessionId });
             ws.send(chunk);
           } else if (ws.readyState === WebSocket.CONNECTING) {
             ws.once('open', () => ws?.send(chunk));
