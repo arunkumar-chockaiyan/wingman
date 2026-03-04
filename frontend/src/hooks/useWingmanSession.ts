@@ -2,12 +2,78 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Insight, TranscriptChunk } from '../types';
 
-const generateUUID = () => {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
-    });
-};
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001';
+const PCM_WORKLET_URL = '/pcm-processor.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new AudioContext at the browser's native sample rate.
+ * The pcm-processor worklet handles downsampling to 16 kHz internally.
+ */
+function createNativeAudioContext(): AudioContext {
+    const Ctor = window.AudioContext || (window as any).webkitAudioContext;
+    return new Ctor();
+}
+
+/**
+ * Load the PCM worklet and return a connected AudioWorkletNode.
+ * Subscribes to the worklet's `postMessage` to emit chunks over Socket.IO.
+ */
+async function initWorkletNode(
+    context: AudioContext,
+    socket: Socket,
+    sessionIdRef: React.MutableRefObject<string>,
+): Promise<AudioWorkletNode> {
+    await context.audioWorklet.addModule(PCM_WORKLET_URL);
+    const workletNode = new AudioWorkletNode(context, 'pcm-processor');
+
+    workletNode.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
+        socket.emit('audio-chunk', {
+            sessionId: sessionIdRef.current,
+            chunk: event.data,
+        });
+    };
+
+    return workletNode;
+}
+
+/**
+ * Wire an AudioNode source through two parallel routes:
+ *   1. source → gainNode → destination   (speaker playback)
+ *   2. source → worklet  → dumpGain(0) → destination   (transcription)
+ *
+ * @param mutePlayback – set `true` during live mic calls to prevent feedback
+ */
+function connectAudioGraph(
+    context: AudioContext,
+    source: AudioNode,
+    workletNode: AudioWorkletNode,
+    mutePlayback: boolean,
+): void {
+    // Speaker path
+    const speakerGain = context.createGain();
+    speakerGain.gain.value = mutePlayback ? 0 : 1;
+    source.connect(speakerGain);
+    speakerGain.connect(context.destination);
+
+    // Transcription path – the worklet must connect to *some* destination to stay alive
+    const dumpGain = context.createGain();
+    dumpGain.gain.value = 0;
+    source.connect(workletNode);
+    workletNode.connect(dumpGain);
+    dumpGain.connect(context.destination);
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
 
 export const useWingmanSession = () => {
     const [isCalling, setIsCalling] = useState(false);
@@ -15,231 +81,175 @@ export const useWingmanSession = () => {
     const [insights, setInsights] = useState<Insight[]>([]);
     const [transcripts, setTranscripts] = useState<TranscriptChunk[]>([]);
     const [socketConnected, setSocketConnected] = useState(false);
+    const [sessionId, setSessionId] = useState('');
 
-    const sessionIdRef = useRef<string>('');
-    const [sessionId, setSessionId] = useState<string>('');
-
+    const sessionIdRef = useRef('');
     const socketRef = useRef<Socket | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
-    const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
+    // Keep a synchronous ref so the transcript listener can label the speaker
     const isSimulatingRef = useRef(false);
+    useEffect(() => { isSimulatingRef.current = isSimulating; }, [isSimulating]);
+
+    // -------------------------------------------------------------------
+    // Socket.IO lifecycle (connect once on mount)
+    // -------------------------------------------------------------------
 
     useEffect(() => {
-        isSimulatingRef.current = isSimulating;
-    }, [isSimulating]);
-
-    useEffect(() => {
-        const socket = io('http://localhost:3001');
+        const socket = io(BACKEND_URL);
         socketRef.current = socket;
+
+        socket.on('connect', () => setSocketConnected(true));
+        socket.on('disconnect', () => setSocketConnected(false));
 
         socket.on('insight', (insight: Insight) => {
             setInsights((prev) => [...prev, insight]);
         });
 
         socket.on('transcript', (data: TranscriptChunk) => {
-            const enrichedData = {
-                ...data,
-                speaker: isSimulatingRef.current ? 'Simulator' : 'User'
-            };
-            setTranscripts((prev) => [...prev, enrichedData]);
+            setTranscripts((prev) => [
+                ...prev,
+                { ...data, speaker: isSimulatingRef.current ? 'Simulator' : 'User' },
+            ]);
         });
 
-        socket.on('connect', () => {
-            console.log('Connected to server');
-            setSocketConnected(true);
-            // Do NOT auto-start a session on reconnect — wait for explicit startCall
-        });
+        return () => { socket.disconnect(); };
+    }, []); // intentionally empty — one socket for the lifetime of the hook
 
-        socket.on('disconnect', () => {
-            console.log('Disconnected from server');
-            setSocketConnected(false);
-        });
+    // -------------------------------------------------------------------
+    // Shared: begin a session
+    // -------------------------------------------------------------------
 
-        return () => {
-            socket.disconnect();
-            if (audioPlayerRef.current) {
-                audioPlayerRef.current.pause();
-            }
-        };
-    }, [sessionId]);
-
-    const _startRecordingStream = useCallback(async (stream: MediaStream, muteOutput: boolean = true) => {
-        // Generate a fresh UUID for every new call
-        const newSessionId = generateUUID();
-        sessionIdRef.current = newSessionId;
-        setSessionId(newSessionId);
-
+    const beginSession = useCallback((title: string) => {
+        const id = crypto.randomUUID();
+        sessionIdRef.current = id;
+        setSessionId(id);
         setIsCalling(true);
-        if (socketRef.current) {
-            socketRef.current.emit('start-call', { sessionId: newSessionId, title: 'New Sales Call' });
-        }
-
-        try {
-            // Ensure we don't duplicate
-            if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-                return;
-            }
-
-            // Let the browser use its native sample rate (44100 or 48000 typically)
-            // The pcm-processor worklet handles downsampling to 16kHz for Vosk
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            const context = new AudioContextClass();
-            audioContextRef.current = context;
-            console.log(`[AudioContext] Created with sample rate: ${context.sampleRate}Hz`);
-
-            const source = context.createMediaStreamSource(stream);
-
-            // Load the worklet processor from the public folder
-            await context.audioWorklet.addModule('/pcm-processor.js');
-
-            const workletNode = new AudioWorkletNode(context, 'pcm-processor');
-            audioWorkletNodeRef.current = workletNode;
-
-            workletNode.port.onmessage = (event) => {
-                if (!socketRef.current) return;
-
-                // Node Socket.IO expects Buffer, which from client is sent as ArrayBuffer
-                socketRef.current.emit('audio-chunk', {
-                    sessionId: sessionIdRef.current,
-                    chunk: event.data
-                });
-            };
-
-            // 1. Route actual audio to speakers (muting applied if during real call)
-            const gainNode = context.createGain();
-            gainNode.gain.value = muteOutput ? 0 : 1;
-            source.connect(gainNode);
-            gainNode.connect(context.destination);
-
-            // 2. Route actual audio to worklet for backend transcription
-            const dumpNode = context.createGain();
-            dumpNode.gain.value = 0; // The worklet just needs to dump into a destination to stay alive
-            source.connect(workletNode);
-            workletNode.connect(dumpNode);
-            dumpNode.connect(context.destination);
-
-            // Safari/iOS requires resuming explicit contexts created off interactions
-            if (context.state === 'suspended') {
-                await context.resume();
-            }
-        } catch (err) {
-            console.error('Error starting audio processor:', err);
-            setIsCalling(false);
-            setIsSimulating(false);
-        }
+        socketRef.current?.emit('start-call', { sessionId: id, title });
+        return id;
     }, []);
 
-    const startCall = useCallback(async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            _startRecordingStream(stream, true);
-        } catch (err) {
-            console.error('Error accessing microphone:', err);
-        }
-    }, [_startRecordingStream]);
+    // -------------------------------------------------------------------
+    // Shared: tear down audio resources
+    // -------------------------------------------------------------------
 
-    const startSimulation = useCallback(async (text: string) => {
-        if (isCalling) return; // Prevent double logging
-        setIsSimulating(true);
-        setInsights([]); // Clear old insights on new sim
-
-        try {
-            const res = await fetch('http://localhost:3001/api/simulate-tts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text })
-            });
-
-            if (!res.ok) throw new Error("TTS generation failed");
-
-            const data = await res.json();
-
-            // Reconstruct the audio chunks into a playable blob
-            // The google-tts-api base64 encoded mp3
-            let blobData = new Uint8Array(0);
-            for (const chunk of data.audioChunks) {
-                const binaryString = window.atob(chunk.shortText ? chunk.base64 : chunk.base64);
-                const bytes = new Uint8Array(binaryString.length);
-                for (let i = 0; i < binaryString.length; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
-                }
-                const newBlobData = new Uint8Array(blobData.length + bytes.length);
-                newBlobData.set(blobData);
-                newBlobData.set(bytes, blobData.length);
-                blobData = newBlobData;
-            }
-
-            const audioBlob = new Blob([blobData], { type: 'audio/mp3' });
-            const audioUrl = URL.createObjectURL(audioBlob);
-
-            const audioEl = new Audio(audioUrl);
-            audioEl.crossOrigin = 'anonymous';
-            audioPlayerRef.current = audioEl;
-
-            // Stop simulation when audio ends
-            audioEl.onended = () => {
-                stopCall();
-            };
-
-            // Capture the MediaStream from the Audio tag
-            // Explicit generic cast to bypass strict TS lib dom limits for this bleeding edge API
-            const captureStream = (audioEl as any).captureStream || (audioEl as any).mozCaptureStream;
-
-            if (captureStream) {
-                const stream = captureStream.call(audioEl);
-
-                // Instead of starting synchronously, we wait for the audio to actually start playing
-                // to guarantee that the stream has active tracks.
-                audioEl.onplay = () => {
-                    if (stream.getAudioTracks().length > 0) {
-                        _startRecordingStream(stream, false);
-                    } else {
-                        // Some browser engines wait a micro-tick to attach the tracks
-                        stream.onaddtrack = () => {
-                            if (stream.getAudioTracks().length > 0) {
-                                _startRecordingStream(stream, false);
-                                stream.onaddtrack = null; // Clean up
-                            }
-                        };
-                    }
-                };
-
-                await audioEl.play();
-            } else {
-                console.error("captureStream API not supported in this browser.");
-                setIsSimulating(false);
-            }
-        } catch (error) {
-            console.error("Simulation error", error);
-            setIsSimulating(false);
-        }
-    }, [isCalling, _startRecordingStream]);
-
-    const stopCall = useCallback(() => {
-        setIsCalling(false);
-        setIsSimulating(false);
-
+    const teardownAudio = useCallback(() => {
         if (audioWorkletNodeRef.current) {
             audioWorkletNodeRef.current.disconnect();
             audioWorkletNodeRef.current = null;
         }
-
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
             audioContextRef.current.close().catch(console.error);
             audioContextRef.current = null;
         }
-
-        if (audioPlayerRef.current) {
-            audioPlayerRef.current.pause();
-            audioPlayerRef.current.src = "";
-        }
-
-        if (socketRef.current) {
-            socketRef.current.emit('end-call', { sessionId: sessionIdRef.current });
-        }
     }, []);
+
+    // -------------------------------------------------------------------
+    // stopCall
+    // -------------------------------------------------------------------
+
+    const stopCall = useCallback(() => {
+        setIsCalling(false);
+        setIsSimulating(false);
+        teardownAudio();
+        socketRef.current?.emit('end-call', { sessionId: sessionIdRef.current });
+    }, [teardownAudio]);
+
+    // -------------------------------------------------------------------
+    // startCall (live microphone)
+    // -------------------------------------------------------------------
+
+    const startCall = useCallback(async () => {
+        if (!socketRef.current) return;
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+            // Prevent duplicate AudioContexts
+            if (audioContextRef.current && audioContextRef.current.state !== 'closed') return;
+
+            beginSession('New Sales Call');
+
+            const context = createNativeAudioContext();
+            audioContextRef.current = context;
+
+            const source = context.createMediaStreamSource(stream);
+            const workletNode = await initWorkletNode(context, socketRef.current, sessionIdRef);
+            audioWorkletNodeRef.current = workletNode;
+
+            connectAudioGraph(context, source, workletNode, /* mutePlayback */ true);
+
+            if (context.state === 'suspended') await context.resume();
+        } catch (err) {
+            console.error('Error accessing microphone:', err);
+            setIsCalling(false);
+        }
+    }, [beginSession]);
+
+    // -------------------------------------------------------------------
+    // startSimulation (replay transcript via TTS)
+    // -------------------------------------------------------------------
+
+    const startSimulation = useCallback(async (text: string) => {
+        if (isCalling || !socketRef.current) return;
+        setIsSimulating(true);
+        setInsights([]);
+
+        try {
+            // 1. Fetch TTS audio from backend
+            const res = await fetch(`${BACKEND_URL}/api/simulate-tts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text }),
+            });
+            if (!res.ok) throw new Error('TTS generation failed');
+
+            const { audioChunks } = await res.json();
+
+            // 2. Stitch base64-encoded MP3 chunks into a single ArrayBuffer
+            const parts: Uint8Array[] = audioChunks.map((chunk: { base64: string }) => {
+                const binary = window.atob(chunk.base64);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                return bytes;
+            });
+            const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
+            const merged = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const part of parts) { merged.set(part, offset); offset += part.length; }
+
+            // 3. Ensure previous AudioContext is closed
+            teardownAudio();
+
+            // 4. Set up session and AudioContext
+            beginSession('Replay Simulation');
+
+            const context = createNativeAudioContext();
+            audioContextRef.current = context;
+
+            // decodeAudioData requires an owned ArrayBuffer (slice avoids shared-memory issues)
+            const audioBuffer = await context.decodeAudioData(merged.buffer.slice(0));
+
+            const workletNode = await initWorkletNode(context, socketRef.current!, sessionIdRef);
+            audioWorkletNodeRef.current = workletNode;
+
+            // 5. Build audio graph: source → speakers + worklet
+            const sourceNode = context.createBufferSource();
+            sourceNode.buffer = audioBuffer;
+            connectAudioGraph(context, sourceNode, workletNode, /* mutePlayback */ false);
+
+            sourceNode.onended = () => stopCall();
+            sourceNode.start(0);
+        } catch (error) {
+            console.error('Simulation error:', error);
+            setIsSimulating(false);
+        }
+    }, [isCalling, beginSession, teardownAudio, stopCall]);
+
+    // -------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------
 
     return {
         isCalling,
@@ -250,6 +260,6 @@ export const useWingmanSession = () => {
         socketConnected,
         startCall,
         startSimulation,
-        stopCall
+        stopCall,
     };
 };

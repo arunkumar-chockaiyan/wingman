@@ -116,12 +116,12 @@ export async function bootstrap() {
         });
 
         // Handle streaming audio chunks
-        socket.on('audio-chunk', async (data: { sessionId: string, chunk: any }) => {
+        socket.on('audio-chunk', async (data: { sessionId: string; chunk: any }) => {
             const { sessionId, chunk } = data;
             if (!sessionId || !chunk) return;
 
-            // Socket.IO can deliver ArrayBuffer/Buffer in various forms depending on
-            // whether it was embedded in a JSON payload vs sent as binary.
+            // Socket.IO can deliver binary data in various forms depending on
+            // whether it was embedded in a JSON payload vs sent as a top-level binary.
             // Normalize to a proper Node.js Buffer before passing to Kafka.
             let audioBuffer: Buffer;
             if (Buffer.isBuffer(chunk)) {
@@ -129,21 +129,14 @@ export async function bootstrap() {
             } else if (chunk instanceof ArrayBuffer) {
                 audioBuffer = Buffer.from(chunk);
             } else if (chunk?.type === 'Buffer' && Array.isArray(chunk.data)) {
-                // Socket.IO JSON-serialized Buffer: { type: 'Buffer', data: [b1, b2, ...] }
                 audioBuffer = Buffer.from(chunk.data);
             } else if (typeof chunk === 'object' && chunk.byteLength !== undefined) {
-                // TypedArray or ArrayBuffer-like
                 audioBuffer = Buffer.from(chunk);
             } else {
-                logger.warn('Received unknown audio chunk format', {
-                    sessionId,
-                    chunkType: typeof chunk,
-                    constructor: chunk?.constructor?.name
-                });
+                logger.warn('Received unknown audio chunk format', { sessionId });
                 return;
             }
 
-            // Pipeline: Client -> Socket -> Kafka -> Transcription Service
             await orchestrator.handleAudioChunk(sessionId, audioBuffer);
         });
 
@@ -178,11 +171,14 @@ export async function bootstrap() {
                     const transcript = activeTranscripts.get(sessionId) || '';
                     await callSessionService.endSession(sessionId, transcript);
                     activeTranscripts.delete(sessionId);
-                    logger.info(`Call session ended and persisted`, { sessionId });
+
+                    // Close the Vosk WebSocket for this session
+                    orchestrator.closeVoskSession(sessionId);
+
+                    logger.info('Call session ended and persisted', { sessionId });
                     span.end();
                 } catch (error) {
                     span.recordException(error as Error);
-                    //logger.info('Error ending call session', { error }); //TODO: Remove this
                     logger.error('Error ending call session', { error });
                     span.end();
                 }
