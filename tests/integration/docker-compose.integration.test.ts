@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { Kafka } from 'kafkajs';
 import WebSocket from 'ws';
 import http from 'http';
@@ -52,26 +53,28 @@ describe('Docker Compose Infrastructure', () => {
     });
 
     describe('Vosk Server', () => {
-        it('should connect via WebSocket', (done) => {
-             const connectWebSocket = (retries = 5, delay = 2000) => {
-                 const ws = new WebSocket('ws://localhost:2700');
+        it('should connect via WebSocket', () => {
+             return new Promise<void>((resolve, reject) => {
+                 const connectWebSocket = (retries = 5, delay = 2000) => {
+                     const ws = new WebSocket('ws://localhost:2700');
 
-                 ws.on('open', () => {
-                     expect(ws.readyState).toBe(WebSocket.OPEN);
-                     ws.close();
-                     done();
-                 });
+                     ws.on('open', () => {
+                         expect(ws.readyState).toBe(WebSocket.OPEN);
+                         ws.close();
+                         resolve();
+                     });
 
-                 ws.on('error', (err) => {
-                     if (retries === 0) {
-                         done(err);
-                     } else {
-                         setTimeout(() => connectWebSocket(retries - 1, delay), delay);
-                     }
-                 });
-             };
+                     ws.on('error', (err) => {
+                         if (retries === 0) {
+                             reject(err);
+                         } else {
+                             setTimeout(() => connectWebSocket(retries - 1, delay), delay);
+                         }
+                     });
+                 };
 
-             connectWebSocket();
+                 connectWebSocket();
+             });
         }, 20000);
     });
 

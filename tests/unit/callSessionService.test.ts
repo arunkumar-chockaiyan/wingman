@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach, vi, type Mocked } from 'vitest';
 import { CallSessionService } from '../../src/services/callSessionService';
 import { UserRepository } from '../../src/repositories/UserRepository';
 import { CallSessionRepository } from '../../src/repositories/CallSessionRepository';
@@ -5,28 +6,28 @@ import { RecommendationRepository } from '../../src/repositories/RecommendationR
 
 describe('CallSessionService', () => {
     let callSessionService: CallSessionService;
-    let mockUserRepo: jest.Mocked<UserRepository>;
-    let mockSessionRepo: jest.Mocked<CallSessionRepository>;
-    let mockRecRepo: jest.Mocked<RecommendationRepository>;
+    let mockUserRepo: Mocked<UserRepository>;
+    let mockSessionRepo: Mocked<CallSessionRepository>;
+    let mockRecRepo: Mocked<RecommendationRepository>;
 
     beforeEach(() => {
         mockUserRepo = {
-            upsertByEmail: jest.fn(),
-            findByEmail: jest.fn()
-        } as unknown as jest.Mocked<UserRepository>;
+            upsertByEmail: vi.fn(),
+            findByEmail: vi.fn()
+        } as unknown as Mocked<UserRepository>;
 
         mockSessionRepo = {
-            create: jest.fn(),
-            endSession: jest.fn(),
-            appendTranscript: jest.fn(),
-            findByUserId: jest.fn(),
-            findById: jest.fn()
-        } as unknown as jest.Mocked<CallSessionRepository>;
+            create: vi.fn(),
+            endSession: vi.fn(),
+            appendTranscript: vi.fn(),
+            findByUserId: vi.fn(),
+            findById: vi.fn()
+        } as unknown as Mocked<CallSessionRepository>;
 
         mockRecRepo = {
-            create: jest.fn(),
-            updateFeedback: jest.fn()
-        } as unknown as jest.Mocked<RecommendationRepository>;
+            create: vi.fn(),
+            updateFeedback: vi.fn()
+        } as unknown as Mocked<RecommendationRepository>;
 
         callSessionService = new CallSessionService(mockUserRepo, mockSessionRepo, mockRecRepo);
     });
