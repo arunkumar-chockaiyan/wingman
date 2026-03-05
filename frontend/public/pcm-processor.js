@@ -18,6 +18,14 @@ class PcmProcessor extends AudioWorkletProcessor {
         this.targetSampleRate = 16000;
         this.resampleRatio = this.nativeSampleRate / this.targetSampleRate;
 
+        // Listen for a flush command from the main thread so remaining
+        // samples are sent before the worklet is disconnected.
+        this.port.onmessage = (event) => {
+            if (event.data === 'flush') {
+                this._flushRemaining();
+            }
+        };
+
         console.log(`[pcm-processor] Native sample rate: ${this.nativeSampleRate}, target: ${this.targetSampleRate}, ratio: ${this.resampleRatio.toFixed(2)}`);
     }
 
@@ -67,6 +75,19 @@ class PcmProcessor extends AudioWorkletProcessor {
 
             // Reset buffer
             this.buffer = new Float32Array(this.bufferSize);
+            this.framesCount = 0;
+        }
+    }
+
+    /** Flush any remaining samples in the buffer (< bufferSize). */
+    _flushRemaining() {
+        if (this.framesCount > 0) {
+            const pcmData = new Int16Array(this.framesCount);
+            for (let j = 0; j < this.framesCount; j++) {
+                const s = Math.max(-1, Math.min(1, this.buffer[j]));
+                pcmData[j] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+            this.port.postMessage(pcmData.buffer, [pcmData.buffer]);
             this.framesCount = 0;
         }
     }

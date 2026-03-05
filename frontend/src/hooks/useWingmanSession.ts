@@ -158,6 +158,8 @@ export const useWingmanSession = () => {
 
     const teardownAudio = useCallback(() => {
         if (audioWorkletNodeRef.current) {
+            // Flush any remaining samples in the worklet buffer before disconnecting
+            audioWorkletNodeRef.current.port.postMessage('flush');
             audioWorkletNodeRef.current.disconnect();
             audioWorkletNodeRef.current = null;
         }

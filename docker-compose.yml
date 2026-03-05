@@ -9,7 +9,7 @@ services:
 
   # Kafka Broker (KRaft mode - no Zookeeper needed)
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.7.1
     container_name: wingman-kafka
     ports:
       - "9092:9092"
@@ -31,7 +31,7 @@ services:
 
   # Kafka UI for visual management
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
+    image: kafbat/kafka-ui:latest
     container_name: wingman-kafka-ui
     depends_on:
       - kafka

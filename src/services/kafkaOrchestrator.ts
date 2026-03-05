@@ -224,10 +224,22 @@ export class Orchestrator {
           return;
         }
 
-        // Wait until the config handshake is complete before sending audio
+        // Wait until the config handshake is complete before sending audio.
+        // If the Vosk connection failed, the promise rejects — catch it and
+        // clean up so the consumer can continue processing other messages.
         const readyPromise = this.voskReadyPromises.get(sessionId);
         if (readyPromise) {
-          await readyPromise;
+          try {
+            await readyPromise;
+          } catch (err) {
+            logger.warn('[AudioProcessor] Vosk connection failed, dropping chunk', {
+              sessionId,
+              error: err,
+            });
+            this.activeVoskSessions.delete(sessionId);
+            this.voskReadyPromises.delete(sessionId);
+            return;
+          }
         }
 
         if (ws.readyState === WebSocket.OPEN) {
@@ -239,25 +251,26 @@ export class Orchestrator {
             });
           }
 
-          // Only reset the idle timer for sessions that are NOT ending
-          // For ending sessions, the timer was already set by the last pre-close chunk
-          if (!isEnding) {
-            const existing = this.idleTimers.get(sessionId);
-            if (existing) clearTimeout(existing);
-            const capturedWs = ws;
-            const timer = setTimeout(async () => {
-              this.idleTimers.delete(sessionId);
-              if (capturedWs.readyState === WebSocket.OPEN) {
-                logger.info('[AudioProcessor] Idle timeout — sending EOF to Vosk', { sessionId });
-                capturedWs.send(JSON.stringify({ eof: 1 }));
-              }
-              // Full cleanup after EOF
-              this.activeVoskSessions.delete(sessionId);
-              this.sessionEnding.delete(sessionId);
-              this.lastPartials.delete(sessionId);
-            }, 2000);
-            this.idleTimers.set(sessionId, timer);
-          }
+          // Reset the idle timer for every chunk (including ending sessions).
+          // end-call travels via Socket.IO directly while audio chunks go through
+          // Kafka, so closeVoskSession() often runs BEFORE the last chunks are
+          // consumed. Without resetting the timer here, EOF would never be sent
+          // and Vosk would only emit partial results.
+          const existing = this.idleTimers.get(sessionId);
+          if (existing) clearTimeout(existing);
+          const capturedWs = ws;
+          const timer = setTimeout(async () => {
+            this.idleTimers.delete(sessionId);
+            if (capturedWs.readyState === WebSocket.OPEN) {
+              logger.info('[AudioProcessor] Idle timeout — sending EOF to Vosk', { sessionId });
+              capturedWs.send(JSON.stringify({ eof: 1 }));
+            }
+            // Full cleanup after EOF
+            this.activeVoskSessions.delete(sessionId);
+            this.sessionEnding.delete(sessionId);
+            this.lastPartials.delete(sessionId);
+          }, 2000);
+          this.idleTimers.set(sessionId, timer);
         } else {
           logger.warn('[AudioProcessor] Vosk WS not open, dropping chunk', {
             sessionId,
@@ -274,18 +287,27 @@ export class Orchestrator {
 
   /** Open a WebSocket to Vosk, send the config handshake, and register event handlers. */
   private openVoskConnection(sessionId: string): WebSocket {
-    const voskUrl = process.env.VOSK_URL || 'ws://localhost:2700';
+    const voskUrl = process.env.VOSK_URL || 'ws://127.0.0.1:2700';
     const voskWs = new WebSocket(voskUrl);
 
     // Store immediately to prevent duplicate connections from concurrent messages
     this.activeVoskSessions.set(sessionId, voskWs);
 
-    // Promise that resolves once the config message has been sent
-    const readyPromise = new Promise<void>((resolve) => {
+    // Promise that resolves once the config message has been sent,
+    // or rejects if the connection fails — preventing the audio consumer from hanging.
+    const readyPromise = new Promise<void>((resolve, reject) => {
       voskWs.on('open', () => {
         logger.info('[AudioProcessor] Vosk connection opened', { sessionId });
         voskWs.send(JSON.stringify({ config: { sample_rate: VOSK_SAMPLE_RATE } }));
         resolve();
+      });
+
+      voskWs.on('error', (err) => {
+        reject(err);
+      });
+
+      voskWs.on('close', () => {
+        reject(new Error('Vosk WebSocket closed before open'));
       });
     });
     this.voskReadyPromises.set(sessionId, readyPromise);
@@ -304,7 +326,6 @@ export class Orchestrator {
           logger.info('[Vosk] Paragraph transcript', { sessionId, text: response.text });
           await this.broadcastTranscript(sessionId, response.text.trim());
           this.lastPartials.delete(sessionId);
-
         }
       } catch (err) {
         logger.warn('[Vosk] Failed to parse message', { sessionId, error: err });
