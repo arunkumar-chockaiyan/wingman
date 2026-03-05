@@ -34,7 +34,7 @@ describe('Docker Compose Infrastructure', () => {
         it('should connect to Kafka', async () => {
             const kafka = new Kafka({
                 clientId: 'test-client',
-                brokers: ['localhost:9092'],
+                brokers: ['127.0.0.1:9092'],
                 retry: {
                     initialRetryTime: 1000,
                     retries: 10
@@ -54,27 +54,27 @@ describe('Docker Compose Infrastructure', () => {
 
     describe('Vosk Server', () => {
         it('should connect via WebSocket', () => {
-             return new Promise<void>((resolve, reject) => {
-                 const connectWebSocket = (retries = 5, delay = 2000) => {
-                     const ws = new WebSocket('ws://localhost:2700');
+            return new Promise<void>((resolve, reject) => {
+                const connectWebSocket = (retries = 5, delay = 2000) => {
+                    const ws = new WebSocket('ws://localhost:2700');
 
-                     ws.on('open', () => {
-                         expect(ws.readyState).toBe(WebSocket.OPEN);
-                         ws.close();
-                         resolve();
-                     });
+                    ws.on('open', () => {
+                        expect(ws.readyState).toBe(WebSocket.OPEN);
+                        ws.close();
+                        resolve();
+                    });
 
-                     ws.on('error', (err) => {
-                         if (retries === 0) {
-                             reject(err);
-                         } else {
-                             setTimeout(() => connectWebSocket(retries - 1, delay), delay);
-                         }
-                     });
-                 };
+                    ws.on('error', (err) => {
+                        if (retries === 0) {
+                            reject(err);
+                        } else {
+                            setTimeout(() => connectWebSocket(retries - 1, delay), delay);
+                        }
+                    });
+                };
 
-                 connectWebSocket();
-             });
+                connectWebSocket();
+            });
         }, 20000);
     });
 

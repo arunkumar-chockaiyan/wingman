@@ -7,68 +7,43 @@ import { Insight, TranscriptChunk } from '../types';
 // ---------------------------------------------------------------------------
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3001';
-const PCM_WORKLET_URL = '/pcm-processor.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Create a new AudioContext at the browser's native sample rate.
- * The pcm-processor worklet handles downsampling to 16 kHz internally.
- */
-function createNativeAudioContext(): AudioContext {
-    const Ctor = window.AudioContext || (window as any).webkitAudioContext;
-    return new Ctor();
-}
+const generateUUID = (): string =>
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+    });
 
-/**
- * Load the PCM worklet and return a connected AudioWorkletNode.
- * Subscribes to the worklet's `postMessage` to emit chunks over Socket.IO.
- */
-async function initWorkletNode(
-    context: AudioContext,
-    socket: Socket,
-    sessionIdRef: React.MutableRefObject<string>,
-): Promise<AudioWorkletNode> {
-    await context.audioWorklet.addModule(PCM_WORKLET_URL);
-    const workletNode = new AudioWorkletNode(context, 'pcm-processor');
+/** Fetch TTS audio from the backend and return a playable Blob. */
+async function fetchTTSAudio(text: string): Promise<Blob> {
+    const res = await fetch(`${BACKEND_URL}/api/simulate-tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error('TTS generation failed');
 
-    workletNode.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-        socket.emit('audio-chunk', {
-            sessionId: sessionIdRef.current,
-            chunk: event.data,
-        });
-    };
+    const { audioChunks } = await res.json();
 
-    return workletNode;
-}
+    let blobData = new Uint8Array(0);
+    for (const chunk of audioChunks) {
+        const binaryString = window.atob(chunk.base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        const merged = new Uint8Array(blobData.length + bytes.length);
+        merged.set(blobData);
+        merged.set(bytes, blobData.length);
+        blobData = merged;
+    }
 
-/**
- * Wire an AudioNode source through two parallel routes:
- *   1. source → gainNode → destination   (speaker playback)
- *   2. source → worklet  → dumpGain(0) → destination   (transcription)
- *
- * @param mutePlayback – set `true` during live mic calls to prevent feedback
- */
-function connectAudioGraph(
-    context: AudioContext,
-    source: AudioNode,
-    workletNode: AudioWorkletNode,
-    mutePlayback: boolean,
-): void {
-    // Speaker path
-    const speakerGain = context.createGain();
-    speakerGain.gain.value = mutePlayback ? 0 : 1;
-    source.connect(speakerGain);
-    speakerGain.connect(context.destination);
-
-    // Transcription path – the worklet must connect to *some* destination to stay alive
-    const dumpGain = context.createGain();
-    dumpGain.gain.value = 0;
-    source.connect(workletNode);
-    workletNode.connect(dumpGain);
-    dumpGain.connect(context.destination);
+    return new Blob([blobData], { type: 'audio/mp3' });
 }
 
 // ---------------------------------------------------------------------------
@@ -81,19 +56,20 @@ export const useWingmanSession = () => {
     const [insights, setInsights] = useState<Insight[]>([]);
     const [transcripts, setTranscripts] = useState<TranscriptChunk[]>([]);
     const [socketConnected, setSocketConnected] = useState(false);
-    const [sessionId, setSessionId] = useState('');
 
-    const sessionIdRef = useRef('');
+    const sessionIdRef = useRef<string>('');
+    const [sessionId, setSessionId] = useState<string>('');
+
     const socketRef = useRef<Socket | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const audioWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
+    const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
-    // Keep a synchronous ref so the transcript listener can label the speaker
     const isSimulatingRef = useRef(false);
     useEffect(() => { isSimulatingRef.current = isSimulating; }, [isSimulating]);
 
     // -------------------------------------------------------------------
-    // Socket.IO lifecycle (connect once on mount)
+    // Socket lifecycle — connect once, never reconnect on state changes
     // -------------------------------------------------------------------
 
     useEffect(() => {
@@ -114,15 +90,61 @@ export const useWingmanSession = () => {
             ]);
         });
 
-        return () => { socket.disconnect(); };
-    }, []); // intentionally empty — one socket for the lifetime of the hook
+        return () => {
+            socket.disconnect();
+        };
+    }, []);
 
     // -------------------------------------------------------------------
-    // Shared: begin a session
+    // Core: initialize audio pipeline (shared by startCall & simulation)
     // -------------------------------------------------------------------
 
-    const beginSession = useCallback((title: string) => {
-        const id = crypto.randomUUID();
+    const initializeAudioPipeline = useCallback(
+        async (stream: MediaStream, muteOutput: boolean): Promise<void> => {
+            if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+                return;
+            }
+
+            const Ctor = window.AudioContext || (window as any).webkitAudioContext;
+            // Use the browser's native sample rate — pcm-processor.js downsamples to 16kHz
+            const context = new Ctor();
+            audioContextRef.current = context;
+
+            console.log('[AudioPipeline] AudioContext created at', context.sampleRate, 'Hz');
+
+            const source = context.createMediaStreamSource(stream);
+
+            await context.audioWorklet.addModule('/pcm-processor.js');
+            const workletNode = new AudioWorkletNode(context, 'pcm-processor');
+            audioWorkletNodeRef.current = workletNode;
+
+            let chunkCount = 0;
+            workletNode.port.onmessage = (event) => {
+                chunkCount++;
+                if (chunkCount <= 3 || chunkCount % 50 === 0) {
+                    console.log(`[AudioPipeline] Emitting audio chunk #${chunkCount}, size=${event.data.byteLength}`);
+                }
+                socketRef.current?.emit('audio-chunk', {
+                    sessionId: sessionIdRef.current,
+                    chunk: event.data,
+                });
+            };
+
+            const gainNode = context.createGain();
+            gainNode.gain.value = muteOutput ? 0 : 1;
+            source.connect(workletNode);
+            workletNode.connect(gainNode);
+            gainNode.connect(context.destination);
+        },
+        [],
+    );
+
+    // -------------------------------------------------------------------
+    // Core: begin a new session (generate ID, emit start-call)
+    // -------------------------------------------------------------------
+
+    const beginSession = useCallback((title: string): string => {
+        const id = generateUUID();
         sessionIdRef.current = id;
         setSessionId(id);
         setIsCalling(true);
@@ -131,7 +153,7 @@ export const useWingmanSession = () => {
     }, []);
 
     // -------------------------------------------------------------------
-    // Shared: tear down audio resources
+    // Core: tear down all audio resources
     // -------------------------------------------------------------------
 
     const teardownAudio = useCallback(() => {
@@ -142,6 +164,11 @@ export const useWingmanSession = () => {
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
             audioContextRef.current.close().catch(console.error);
             audioContextRef.current = null;
+        }
+        if (audioPlayerRef.current) {
+            audioPlayerRef.current.pause();
+            audioPlayerRef.current.src = '';
+            audioPlayerRef.current = null;
         }
     }, []);
 
@@ -156,96 +183,109 @@ export const useWingmanSession = () => {
         socketRef.current?.emit('end-call', { sessionId: sessionIdRef.current });
     }, [teardownAudio]);
 
+    // Use a ref so inner closures (e.g. audioEl.onended) always call the latest version
+    const stopCallRef = useRef(stopCall);
+    useEffect(() => { stopCallRef.current = stopCall; }, [stopCall]);
+
     // -------------------------------------------------------------------
     // startCall (live microphone)
     // -------------------------------------------------------------------
 
     const startCall = useCallback(async () => {
-        if (!socketRef.current) return;
-
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-            // Prevent duplicate AudioContexts
-            if (audioContextRef.current && audioContextRef.current.state !== 'closed') return;
-
             beginSession('New Sales Call');
-
-            const context = createNativeAudioContext();
-            audioContextRef.current = context;
-
-            const source = context.createMediaStreamSource(stream);
-            const workletNode = await initWorkletNode(context, socketRef.current, sessionIdRef);
-            audioWorkletNodeRef.current = workletNode;
-
-            connectAudioGraph(context, source, workletNode, /* mutePlayback */ true);
-
-            if (context.state === 'suspended') await context.resume();
+            await initializeAudioPipeline(stream, true);
         } catch (err) {
             console.error('Error accessing microphone:', err);
             setIsCalling(false);
         }
-    }, [beginSession]);
+    }, [beginSession, initializeAudioPipeline]);
 
     // -------------------------------------------------------------------
-    // startSimulation (replay transcript via TTS)
+    // startSimulation (replay transcript via TTS → captureStream)
     // -------------------------------------------------------------------
 
     const startSimulation = useCallback(async (text: string) => {
-        if (isCalling || !socketRef.current) return;
+        if (isCalling) return;
         setIsSimulating(true);
         setInsights([]);
 
         try {
-            // 1. Fetch TTS audio from backend
-            const res = await fetch(`${BACKEND_URL}/api/simulate-tts`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text }),
-            });
-            if (!res.ok) throw new Error('TTS generation failed');
+            // 1. Fetch TTS audio
+            const audioBlob = await fetchTTSAudio(text);
+            const audioUrl = URL.createObjectURL(audioBlob);
 
-            const { audioChunks } = await res.json();
+            // 2. Create audio element (don't play yet)
+            const audioEl = new Audio(audioUrl);
+            audioEl.crossOrigin = 'anonymous';
+            audioPlayerRef.current = audioEl;
 
-            // 2. Stitch base64-encoded MP3 chunks into a single ArrayBuffer
-            const parts: Uint8Array[] = audioChunks.map((chunk: { base64: string }) => {
-                const binary = window.atob(chunk.base64);
-                const bytes = new Uint8Array(binary.length);
-                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                return bytes;
-            });
-            const totalLength = parts.reduce((sum, p) => sum + p.length, 0);
-            const merged = new Uint8Array(totalLength);
-            let offset = 0;
-            for (const part of parts) { merged.set(part, offset); offset += part.length; }
+            // 3. Get captureStream
+            const captureStreamFn =
+                (audioEl as any).captureStream || (audioEl as any).mozCaptureStream;
 
-            // 3. Ensure previous AudioContext is closed
-            teardownAudio();
+            if (!captureStreamFn) {
+                console.error('captureStream API not supported in this browser.');
+                setIsSimulating(false);
+                return;
+            }
 
-            // 4. Set up session and AudioContext
+            // 4. Begin session (generates UUID, emits start-call)
             beginSession('Replay Simulation');
 
-            const context = createNativeAudioContext();
+            // 5. PRE-INITIALIZE AudioContext + worklet BEFORE playing audio
+            //    This is critical: addModule() is async and takes ~200ms.
+            //    If we play first, the audio finishes before the worklet is ready.
+            const Ctor = window.AudioContext || (window as any).webkitAudioContext;
+            const context = new Ctor();
             audioContextRef.current = context;
 
-            // decodeAudioData requires an owned ArrayBuffer (slice avoids shared-memory issues)
-            const audioBuffer = await context.decodeAudioData(merged.buffer.slice(0));
+            console.log('[Simulation] AudioContext created at', context.sampleRate, 'Hz');
 
-            const workletNode = await initWorkletNode(context, socketRef.current!, sessionIdRef);
+            await context.audioWorklet.addModule('/pcm-processor.js');
+            const workletNode = new AudioWorkletNode(context, 'pcm-processor');
             audioWorkletNodeRef.current = workletNode;
 
-            // 5. Build audio graph: source → speakers + worklet
-            const sourceNode = context.createBufferSource();
-            sourceNode.buffer = audioBuffer;
-            connectAudioGraph(context, sourceNode, workletNode, /* mutePlayback */ false);
+            let chunkCount = 0;
+            workletNode.port.onmessage = (event) => {
+                chunkCount++;
+                if (chunkCount <= 3 || chunkCount % 50 === 0) {
+                    console.log(`[Simulation] Audio chunk #${chunkCount}, size=${event.data.byteLength}`);
+                }
+                socketRef.current?.emit('audio-chunk', {
+                    sessionId: sessionIdRef.current,
+                    chunk: event.data,
+                });
+            };
 
-            sourceNode.onended = () => stopCall();
-            sourceNode.start(0);
+            // 6. Get the capture stream and connect the audio graph synchronously
+            const stream: MediaStream = captureStreamFn.call(audioEl);
+
+            audioEl.onended = () => {
+                console.log(`[Simulation] Audio ended after ${chunkCount} chunks`);
+                stopCallRef.current();
+            };
+
+            // 7. Start playback FIRST so the stream gets active tracks
+            await audioEl.play();
+
+            // 8. Connect the stream source to the worklet graph immediately
+            //    (all synchronous — no await gap where audio can be lost)
+            const source = context.createMediaStreamSource(stream);
+            const gainNode = context.createGain();
+            gainNode.gain.value = 1; // Let simulation audio play through speakers
+            source.connect(workletNode);
+            workletNode.connect(gainNode);
+            gainNode.connect(context.destination);
+
+            console.log('[Simulation] Pipeline connected, stream tracks:', stream.getAudioTracks().length);
+
         } catch (error) {
             console.error('Simulation error:', error);
             setIsSimulating(false);
         }
-    }, [isCalling, beginSession, teardownAudio, stopCall]);
+    }, [isCalling, beginSession]);
 
     // -------------------------------------------------------------------
     // Public API

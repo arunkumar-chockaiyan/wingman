@@ -69,8 +69,8 @@ export async function bootstrap() {
     await orchestrator.startAudioProcessor();
 
     // Listen for insights from Kafka and broadcast to specific clients
-    await orchestrator.startInsightListener((sessionId, insight) => {
-        logger.info(`Sending insight to session ${sessionId}`, { sessionId, insight: insight.content });
+    await orchestrator.startInsightListener((sessionId, insight: any) => {
+        logger.info(`Sending insight to session ${sessionId}`, { sessionId, insight: insight?.content });
         // We broadcast to the room named after sessionId
         io.to(sessionId).emit('insight', insight);
     });
@@ -78,6 +78,10 @@ export async function bootstrap() {
     // Listen for transcripts and broadcast
     await orchestrator.startTranscriptListener((sessionId, data) => {
         io.to(sessionId).emit('transcript', data);
+
+        // Append to the active session transcript so it can be saved when the call ends
+        const currentContext = activeTranscripts.get(sessionId) || "";
+        activeTranscripts.set(sessionId, currentContext + " " + data.transcript);
     });
 
     io.on('connection', (socket) => {
@@ -116,9 +120,23 @@ export async function bootstrap() {
         });
 
         // Handle streaming audio chunks
+        let chunkCounter = 0;
         socket.on('audio-chunk', async (data: { sessionId: string; chunk: any }) => {
             const { sessionId, chunk } = data;
             if (!sessionId || !chunk) return;
+
+            chunkCounter++;
+            if (chunkCounter <= 3 || chunkCounter % 20 === 0) {
+                logger.info(`[Debug] Received audio chunk #${chunkCounter}`, {
+                    sessionId,
+                    chunkType: typeof chunk,
+                    isBuffer: Buffer.isBuffer(chunk),
+                    isArrayBuffer: chunk instanceof ArrayBuffer,
+                    hasType: chunk?.type,
+                    hasByteLength: chunk?.byteLength,
+                    size: chunk?.byteLength || chunk?.length || chunk?.data?.length || 'unknown',
+                });
+            }
 
             // Socket.IO can deliver binary data in various forms depending on
             // whether it was embedded in a JSON payload vs sent as a top-level binary.
@@ -135,6 +153,10 @@ export async function bootstrap() {
             } else {
                 logger.warn('Received unknown audio chunk format', { sessionId });
                 return;
+            }
+
+            if (chunkCounter <= 3) {
+                logger.info(`[Debug] Forwarding to Kafka`, { sessionId, bufferSize: audioBuffer.length });
             }
 
             await orchestrator.handleAudioChunk(sessionId, audioBuffer);

@@ -1,7 +1,7 @@
-import { initTracing } from './config/tracing';
-initTracing(); // Initialize tracing before any other imports
+import 'dotenv/config'; // MUST be first — env vars needed by all subsequent module-level code
 
-import 'dotenv/config'; // Ensure environment variables are loaded first
+import { initTracing } from './config/tracing';
+initTracing(); // Initialize tracing before application imports
 import { bootstrap } from './server';
 import { salesCoachAgent, qaAgent } from './agents/coreAgents';
 import { SearchAgent } from './agents/searchAgent';
