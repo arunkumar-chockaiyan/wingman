@@ -1,7 +1,7 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { trace, context, SpanStatusCode } from '@opentelemetry/api';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 import cors from 'cors';
 import * as googleTTS from 'google-tts-api';
 import { Orchestrator } from './services/kafkaOrchestrator';
@@ -11,16 +11,32 @@ import { CallSessionRepository } from './repositories/CallSessionRepository';
 import { RecommendationRepository } from './repositories/RecommendationRepository';
 import logger from './utils/logger';
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const MAX_AUDIO_CHUNK_BYTES = 1024 * 1024; // 1 MB hard cap per chunk
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// ---------------------------------------------------------------------------
+// App setup
+// ---------------------------------------------------------------------------
+
 const app = express();
 const httpServer = createServer(app);
+
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+    : ['http://localhost:5173', 'http://localhost:3000'];
+
 const io = new Server(httpServer, {
     cors: {
-        origin: "*", // Adjust for production
-        methods: ["GET", "POST"]
-    }
+        origin: allowedOrigins,
+        methods: ['GET', 'POST'],
+    },
 });
 
-const orchestrator = new Orchestrator();
+export const orchestrator = new Orchestrator();
 
 // Layered DI: Repositories → Service
 const callSessionService = new CallSessionService(
@@ -32,10 +48,13 @@ const callSessionService = new CallSessionService(
 // In-memory map to track active sessions and their accumulated transcripts
 const activeTranscripts = new Map<string, string>();
 
-app.use(cors());
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
+// ---------------------------------------------------------------------------
 // TTS Simulation Endpoint
+// ---------------------------------------------------------------------------
+
 app.post('/api/simulate-tts', async (req, res) => {
     try {
         const { text } = req.body;
@@ -43,8 +62,8 @@ app.post('/api/simulate-tts', async (req, res) => {
             return res.status(400).json({ error: 'Text is required for TTS simulation' });
         }
 
-        // google-tts-api limits chunks to 200 characters. 
-        // We will split the text and get base64 audio for all chunks.
+        // google-tts-api limits chunks to 200 characters.
+        // We split the text and get base64 audio for all chunks.
         const audioResults = await googleTTS.getAllAudioBase64(text, {
             lang: 'en',
             slow: false,
@@ -52,8 +71,7 @@ app.post('/api/simulate-tts', async (req, res) => {
             splitPunct: ',.?'
         });
 
-        // The google-tts-api returns an array of base64 chunks.
-        // For simplicity we return them directly so the frontend can stitch and play them back to back
+        // Return the array of base64 chunks so the frontend can stitch and play them back-to-back.
         res.json({ audioChunks: audioResults });
     } catch (error) {
         logger.error("TTS Error", { error });
@@ -61,7 +79,10 @@ app.post('/api/simulate-tts', async (req, res) => {
     }
 });
 
+// ---------------------------------------------------------------------------
 // Main Entry Point
+// ---------------------------------------------------------------------------
+
 export async function bootstrap() {
     await orchestrator.init();
 
@@ -69,9 +90,11 @@ export async function bootstrap() {
     await orchestrator.startAudioProcessor();
 
     // Listen for insights from Kafka and broadcast to specific clients
-    await orchestrator.startInsightListener((sessionId, insight: any) => {
-        logger.info(`Sending insight to session ${sessionId}`, { sessionId, insight: insight?.content });
-        // We broadcast to the room named after sessionId
+    await orchestrator.startInsightListener((sessionId, insight: unknown) => {
+        logger.info(`Sending insight to session ${sessionId}`, {
+            sessionId,
+            insight: (insight as { content?: string })?.content,
+        });
         io.to(sessionId).emit('insight', insight);
     });
 
@@ -80,33 +103,48 @@ export async function bootstrap() {
         io.to(sessionId).emit('transcript', data);
 
         // Append to the active session transcript so it can be saved when the call ends
-        const currentContext = activeTranscripts.get(sessionId) || "";
-        activeTranscripts.set(sessionId, currentContext + " " + data.transcript);
+        const current = activeTranscripts.get(sessionId) ?? '';
+        activeTranscripts.set(sessionId, current + ' ' + data.transcript);
     });
+
+    // -----------------------------------------------------------------------
+    // Socket.io connection handler
+    // -----------------------------------------------------------------------
 
     io.on('connection', (socket) => {
         logger.info('Client connected', { socketId: socket.id });
 
-        // Initial session setup
-        socket.on('start-call', async (data: { sessionId?: string, title: string }) => {
+        // Track the session bound to this socket for cleanup on disconnect
+        let currentSessionId: string | null = null;
+
+        // -------------------------------------------------------------------
+        // start-call
+        // -------------------------------------------------------------------
+
+        socket.on('start-call', async (data: { sessionId?: string; title: string }) => {
             const tracer = trace.getTracer('wingman-websocket');
             await tracer.startActiveSpan('socket.start-call', async (span) => {
                 try {
                     const title = data.title || 'Untitled Call';
                     span.setAttribute('call.title', title);
 
-                    // Create a new CallSession in the DB — use the client-provided UUID
+                    // Validate the client-provided session ID
+                    if (data.sessionId && !UUID_RE.test(data.sessionId)) {
+                        socket.emit('error', { message: 'Invalid sessionId format' });
+                        span.setStatus({ code: SpanStatusCode.ERROR, message: 'Invalid sessionId' });
+                        span.end();
+                        return;
+                    }
+
                     const session = await callSessionService.startSession(title, data.sessionId);
                     const sessionId = session.id;
                     span.setAttribute('call.session_id', sessionId);
 
-                    logger.info(`Call session created in DB`, { sessionId, title });
-
-                    // Join a room named after the DB session ID
+                    currentSessionId = sessionId;
                     socket.join(sessionId);
                     activeTranscripts.set(sessionId, '');
 
-                    // Send the DB-assigned session ID back to the client
+                    logger.info(`Call session created in DB`, { sessionId, title });
                     socket.emit('session-started', { sessionId, title });
                     span.end();
                 } catch (error) {
@@ -119,28 +157,18 @@ export async function bootstrap() {
             });
         });
 
-        // Handle streaming audio chunks
+        // -------------------------------------------------------------------
+        // audio-chunk
+        // -------------------------------------------------------------------
+
         let chunkCounter = 0;
         socket.on('audio-chunk', async (data: { sessionId: string; chunk: any }) => {
             const { sessionId, chunk } = data;
             if (!sessionId || !chunk) return;
 
             chunkCounter++;
-            if (chunkCounter <= 3 || chunkCounter % 20 === 0) {
-                logger.info(`[Debug] Received audio chunk #${chunkCounter}`, {
-                    sessionId,
-                    chunkType: typeof chunk,
-                    isBuffer: Buffer.isBuffer(chunk),
-                    isArrayBuffer: chunk instanceof ArrayBuffer,
-                    hasType: chunk?.type,
-                    hasByteLength: chunk?.byteLength,
-                    size: chunk?.byteLength || chunk?.length || chunk?.data?.length || 'unknown',
-                });
-            }
 
-            // Socket.IO can deliver binary data in various forms depending on
-            // whether it was embedded in a JSON payload vs sent as a top-level binary.
-            // Normalize to a proper Node.js Buffer before passing to Kafka.
+            // Normalize to a Buffer regardless of how Socket.IO delivered the binary data
             let audioBuffer: Buffer;
             if (Buffer.isBuffer(chunk)) {
                 audioBuffer = chunk;
@@ -155,15 +183,31 @@ export async function bootstrap() {
                 return;
             }
 
-            if (chunkCounter <= 3) {
-                logger.info(`[Debug] Forwarding to Kafka`, { sessionId, bufferSize: audioBuffer.length });
+            // Guard against abnormally large payloads
+            if (audioBuffer.length > MAX_AUDIO_CHUNK_BYTES) {
+                logger.warn('Oversized audio chunk rejected', {
+                    sessionId,
+                    size: audioBuffer.length,
+                    limit: MAX_AUDIO_CHUNK_BYTES,
+                });
+                return;
+            }
+
+            if (chunkCounter <= 3 || chunkCounter % 20 === 0) {
+                logger.info(`Received audio chunk #${chunkCounter}`, {
+                    sessionId,
+                    bufferSize: audioBuffer.length,
+                });
             }
 
             await orchestrator.handleAudioChunk(sessionId, audioBuffer);
         });
 
-        // Manual feedback handle
-        socket.on('feedback', async (data: { sessionId: string, id: string, status: string }) => {
+        // -------------------------------------------------------------------
+        // feedback
+        // -------------------------------------------------------------------
+
+        socket.on('feedback', async (data: { sessionId: string; id: string; status: string }) => {
             const tracer = trace.getTracer('wingman-websocket');
             await tracer.startActiveSpan('socket.feedback', async (span) => {
                 try {
@@ -176,13 +220,17 @@ export async function bootstrap() {
                     span.end();
                 } catch (error) {
                     span.recordException(error as Error);
+                    span.setStatus({ code: SpanStatusCode.ERROR });
                     logger.error('Error recording feedback', { error });
                     span.end();
                 }
             });
         });
 
-        // End call: persist the full transcript
+        // -------------------------------------------------------------------
+        // end-call
+        // -------------------------------------------------------------------
+
         socket.on('end-call', async (data: { sessionId: string }) => {
             const tracer = trace.getTracer('wingman-websocket');
             await tracer.startActiveSpan('socket.end-call', async (span) => {
@@ -190,25 +238,36 @@ export async function bootstrap() {
                     const { sessionId } = data;
                     span.setAttribute('call.session_id', sessionId);
 
-                    const transcript = activeTranscripts.get(sessionId) || '';
+                    const transcript = activeTranscripts.get(sessionId) ?? '';
                     await callSessionService.endSession(sessionId, transcript);
                     activeTranscripts.delete(sessionId);
-
-                    // Close the Vosk WebSocket for this session
                     orchestrator.closeVoskSession(sessionId);
+
+                    if (currentSessionId === sessionId) currentSessionId = null;
 
                     logger.info('Call session ended and persisted', { sessionId });
                     span.end();
                 } catch (error) {
                     span.recordException(error as Error);
+                    span.setStatus({ code: SpanStatusCode.ERROR });
                     logger.error('Error ending call session', { error });
                     span.end();
                 }
             });
         });
 
+        // -------------------------------------------------------------------
+        // disconnect — clean up any session that wasn't explicitly ended
+        // -------------------------------------------------------------------
+
         socket.on('disconnect', () => {
             logger.info('Client disconnected', { socketId: socket.id });
+            if (currentSessionId) {
+                activeTranscripts.delete(currentSessionId);
+                logger.info('Cleaned up transcript for disconnected session', {
+                    sessionId: currentSessionId,
+                });
+            }
         });
     });
 

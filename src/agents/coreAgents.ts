@@ -1,19 +1,31 @@
-import { Kafka } from 'kafkajs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { AGENT_PROMPTS } from '../prompts/agentTemplates';
+import kafka from '../config/kafkaClient';
 import logger from '../utils/logger';
 
-const kafka = new Kafka({ brokers: [process.env.KAFKA_BROKER || 'localhost:9092'] });
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface AgentPrompt {
+    system: string;
+    triggerKeywords: string[];
+}
+
+// ---------------------------------------------------------------------------
+// GenericAgent
+// ---------------------------------------------------------------------------
 
 export class GenericAgent {
     private consumer;
     private producer = kafka.producer();
-    private prompt: any;
+    private prompt: AgentPrompt;
     private agentId: string;
     private category: string;
 
-    constructor(agentId: string, category: string, prompt: any) {
+    constructor(agentId: string, category: string, prompt: AgentPrompt) {
         this.agentId = agentId;
         this.category = category;
         this.prompt = prompt;
@@ -29,44 +41,55 @@ export class GenericAgent {
     async start() {
         await this.consumer.run({
             eachMessage: async ({ message }) => {
-                const sessionId = message.key?.toString();
-                const { transcript } = JSON.parse(message.value?.toString() || '{}');
+                try {
+                    const sessionId = message.key?.toString();
+                    const { transcript } = JSON.parse(message.value?.toString() || '{}');
 
-                if (this.shouldTrigger(transcript)) {
-                    const insight = await this.analyze(transcript);
-                    if (sessionId && insight) {
-                        await this.producer.send({
-                            topic: 'agent-insights',
-                            messages: [{
-                                key: sessionId, value: JSON.stringify({
-                                    agentId: this.agentId,
-                                    category: this.category,
-                                    content: insight
-                                })
-                            }]
-                        });
+                    if (this.shouldTrigger(transcript)) {
+                        const insight = await this.analyze(transcript);
+                        if (sessionId && insight) {
+                            await this.producer.send({
+                                topic: 'agent-insights',
+                                messages: [{
+                                    key: sessionId,
+                                    value: JSON.stringify({
+                                        agentId: this.agentId,
+                                        category: this.category,
+                                        content: insight,
+                                    }),
+                                }],
+                            });
+                        }
                     }
+                } catch (error) {
+                    logger.error(`${this.agentId}: unhandled error processing message`, {
+                        agentId: this.agentId,
+                        error: error instanceof Error ? error.stack : error,
+                    });
                 }
             },
         });
     }
 
     private shouldTrigger(text: string): boolean {
-        return this.prompt.triggerKeywords.some((kw: string) =>
+        return this.prompt.triggerKeywords.some((kw) =>
             text.toLowerCase().includes(kw)
         );
     }
 
     private async analyze(transcript: string): Promise<string | null> {
         try {
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
             const result = await model.generateContent([
                 this.prompt.system,
-                `Current Transcript: ${transcript}`
+                `Current Transcript: ${transcript}`,
             ]);
             return result.response.text();
         } catch (error) {
-            logger.error(`${this.agentId} Error`, { error, agentId: this.agentId });
+            logger.error(`${this.agentId}: Gemini API error`, {
+                agentId: this.agentId,
+                error: error instanceof Error ? error.stack : error,
+            });
             return null;
         }
     }

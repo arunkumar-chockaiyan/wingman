@@ -30,20 +30,25 @@ async function fetchTTSAudio(text: string): Promise<Blob> {
 
     const { audioChunks } = await res.json();
 
-    let blobData = new Uint8Array(0);
-    for (const chunk of audioChunks) {
+    // Collect all decoded chunks first, then merge in a single pass (O(n) instead of O(n²))
+    const decoded: Uint8Array[] = audioChunks.map((chunk: { base64: string }) => {
         const binaryString = window.atob(chunk.base64);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
             bytes[i] = binaryString.charCodeAt(i);
         }
-        const merged = new Uint8Array(blobData.length + bytes.length);
-        merged.set(blobData);
-        merged.set(bytes, blobData.length);
-        blobData = merged;
+        return bytes;
+    });
+
+    const totalLength = decoded.reduce((sum, b) => sum + b.length, 0);
+    const merged = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const bytes of decoded) {
+        merged.set(bytes, offset);
+        offset += bytes.length;
     }
 
-    return new Blob([blobData], { type: 'audio/mp3' });
+    return new Blob([merged], { type: 'audio/mp3' });
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +95,13 @@ export const useWingmanSession = () => {
             ]);
         });
 
+        // Reset call state on server-side errors so the UI doesn't get stuck
+        socket.on('error', (err: { message: string }) => {
+            console.error('[Socket] Server error:', err.message);
+            setIsCalling(false);
+            setIsSimulating(false);
+        });
+
         return () => {
             socket.disconnect();
         };
@@ -110,20 +122,23 @@ export const useWingmanSession = () => {
             const context = new Ctor();
             audioContextRef.current = context;
 
-            console.log('[AudioPipeline] AudioContext created at', context.sampleRate, 'Hz');
-
             const source = context.createMediaStreamSource(stream);
 
-            await context.audioWorklet.addModule('/pcm-processor.js');
+            try {
+                await context.audioWorklet.addModule('/pcm-processor.js');
+            } catch (err) {
+                console.error('[AudioPipeline] Failed to load audio worklet:', err);
+                context.close();
+                audioContextRef.current = null;
+                throw new Error('Audio worklet unavailable — ensure /pcm-processor.js is served correctly');
+            }
+
             const workletNode = new AudioWorkletNode(context, 'pcm-processor');
             audioWorkletNodeRef.current = workletNode;
 
             let chunkCount = 0;
             workletNode.port.onmessage = (event) => {
                 chunkCount++;
-                if (chunkCount <= 3 || chunkCount % 50 === 0) {
-                    console.log(`[AudioPipeline] Emitting audio chunk #${chunkCount}, size=${event.data.byteLength}`);
-                }
                 socketRef.current?.emit('audio-chunk', {
                     sessionId: sessionIdRef.current,
                     chunk: event.data,
@@ -164,7 +179,9 @@ export const useWingmanSession = () => {
             audioWorkletNodeRef.current = null;
         }
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-            audioContextRef.current.close().catch(console.error);
+            audioContextRef.current.close().catch((err) =>
+                console.error('[teardownAudio] Failed to close AudioContext:', err)
+            );
             audioContextRef.current = null;
         }
         if (audioPlayerRef.current) {
@@ -199,7 +216,7 @@ export const useWingmanSession = () => {
             beginSession('New Sales Call');
             await initializeAudioPipeline(stream, true);
         } catch (err) {
-            console.error('Error accessing microphone:', err);
+            console.error('[startCall] Error accessing microphone:', err);
             setIsCalling(false);
         }
     }, [beginSession, initializeAudioPipeline]);
@@ -228,7 +245,7 @@ export const useWingmanSession = () => {
                 (audioEl as any).captureStream || (audioEl as any).mozCaptureStream;
 
             if (!captureStreamFn) {
-                console.error('captureStream API not supported in this browser.');
+                console.error('[startSimulation] captureStream API not supported in this browser.');
                 setIsSimulating(false);
                 return;
             }
@@ -236,25 +253,26 @@ export const useWingmanSession = () => {
             // 4. Begin session (generates UUID, emits start-call)
             beginSession('Replay Simulation');
 
-            // 5. PRE-INITIALIZE AudioContext + worklet BEFORE playing audio
-            //    This is critical: addModule() is async and takes ~200ms.
-            //    If we play first, the audio finishes before the worklet is ready.
+            // 5. PRE-INITIALIZE AudioContext + worklet BEFORE playing audio.
+            //    addModule() is async (~200ms); playing first would lose early audio frames.
             const Ctor = window.AudioContext || (window as any).webkitAudioContext;
             const context = new Ctor();
             audioContextRef.current = context;
 
-            console.log('[Simulation] AudioContext created at', context.sampleRate, 'Hz');
+            try {
+                await context.audioWorklet.addModule('/pcm-processor.js');
+            } catch (err) {
+                console.error('[startSimulation] Failed to load audio worklet:', err);
+                context.close();
+                audioContextRef.current = null;
+                setIsSimulating(false);
+                return;
+            }
 
-            await context.audioWorklet.addModule('/pcm-processor.js');
             const workletNode = new AudioWorkletNode(context, 'pcm-processor');
             audioWorkletNodeRef.current = workletNode;
 
-            let chunkCount = 0;
             workletNode.port.onmessage = (event) => {
-                chunkCount++;
-                if (chunkCount <= 3 || chunkCount % 50 === 0) {
-                    console.log(`[Simulation] Audio chunk #${chunkCount}, size=${event.data.byteLength}`);
-                }
                 socketRef.current?.emit('audio-chunk', {
                     sessionId: sessionIdRef.current,
                     chunk: event.data,
@@ -265,7 +283,6 @@ export const useWingmanSession = () => {
             const stream: MediaStream = captureStreamFn.call(audioEl);
 
             audioEl.onended = () => {
-                console.log(`[Simulation] Audio ended after ${chunkCount} chunks`);
                 stopCallRef.current();
             };
 
@@ -281,10 +298,8 @@ export const useWingmanSession = () => {
             workletNode.connect(gainNode);
             gainNode.connect(context.destination);
 
-            console.log('[Simulation] Pipeline connected, stream tracks:', stream.getAudioTracks().length);
-
         } catch (error) {
-            console.error('Simulation error:', error);
+            console.error('[startSimulation] Error:', error);
             setIsSimulating(false);
         }
     }, [isCalling, beginSession]);

@@ -1,5 +1,6 @@
-import { Kafka, Producer, Consumer } from 'kafkajs';
+import { Producer, Consumer } from 'kafkajs';
 import WebSocket from 'ws';
+import kafka from '../config/kafkaClient';
 import logger from '../utils/logger';
 
 // ---------------------------------------------------------------------------
@@ -7,11 +8,6 @@ import logger from '../utils/logger';
 // ---------------------------------------------------------------------------
 
 const VOSK_SAMPLE_RATE = 16_000;
-
-const kafka = new Kafka({
-  clientId: 'wingman-orchestrator',
-  brokers: [process.env.KAFKA_BROKER || 'localhost:9092'],
-});
 
 // ---------------------------------------------------------------------------
 // Topic Bootstrap
@@ -51,6 +47,9 @@ export class Orchestrator {
   /** Active WebSocket connections to the Vosk STT server, keyed by sessionId. */
   private readonly activeVoskSessions = new Map<string, WebSocket>();
 
+  /** Pending delayed-close timeouts, keyed by sessionId — tracked so they can be cancelled on shutdown. */
+  private readonly voskCleanupTimeouts = new Map<string, NodeJS.Timeout>();
+
   constructor() {
     this.producer = kafka.producer();
     this.audioConsumer = kafka.consumer({ groupId: 'audio-processors' });
@@ -75,9 +74,19 @@ export class Orchestrator {
 
   /** Gracefully close all Vosk WebSockets and disconnect Kafka clients. */
   async shutdown(): Promise<void> {
+    // Cancel all pending delayed-close timers and close WebSockets immediately
     for (const sessionId of this.activeVoskSessions.keys()) {
-      this.closeVoskSession(sessionId);
+      const pending = this.voskCleanupTimeouts.get(sessionId);
+      if (pending) {
+        clearTimeout(pending);
+        this.voskCleanupTimeouts.delete(sessionId);
+      }
+      const ws = this.activeVoskSessions.get(sessionId);
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
     }
+    this.activeVoskSessions.clear();
 
     await this.audioConsumer.disconnect();
     await this.insightConsumer.disconnect();
@@ -109,27 +118,36 @@ export class Orchestrator {
     });
   }
 
-  /** 
+  /**
    * Signal that a call session has ended.
+   * Sends the Vosk EOF marker then schedules the WebSocket to close after
+   * a delay so that any final partial transcript can be received.
    */
   closeVoskSession(sessionId: string): void {
     const ws = this.activeVoskSessions.get(sessionId);
-    if (ws) {
-      if (ws.readyState === WebSocket.OPEN) {
-        logger.info('[Vosk] Sending EOF', { sessionId });
-        ws.send('{"eof" : 1}');
-      }
+    if (!ws) return;
 
-      // Delay closing to give Vosk time to send the final transcript back
-      setTimeout(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          logger.info('[Vosk] Closing WebSocket after delay', { sessionId });
-          ws.close();
-        }
-        logger.info('[Vosk] deleting activeVoskSession', { sessionId });
-        this.activeVoskSessions.delete(sessionId);
-      }, 15000);
+    // Cancel any previously scheduled close for this session
+    const existing = this.voskCleanupTimeouts.get(sessionId);
+    if (existing) clearTimeout(existing);
+
+    if (ws.readyState === WebSocket.OPEN) {
+      logger.info('[Vosk] Sending EOF', { sessionId });
+      ws.send('{"eof" : 1}'); // Vosk requires this exact string
     }
+
+    // Delay closing to give Vosk time to flush the final transcript (~10 s)
+    const timeout = setTimeout(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        logger.info('[Vosk] Closing WebSocket after delay', { sessionId });
+        ws.close();
+      }
+      logger.info('[Vosk] Removing active Vosk session', { sessionId });
+      this.activeVoskSessions.delete(sessionId);
+      this.voskCleanupTimeouts.delete(sessionId);
+    }, 15_000);
+
+    this.voskCleanupTimeouts.set(sessionId, timeout);
   }
 
   // -----------------------------------------------------------------------
@@ -235,9 +253,9 @@ export class Orchestrator {
         try {
           const response = JSON.parse(data.toString());
 
-          if (response.partial) {
-            logger.info('[Vosk] Partial transcript received', { sessionId, text: response.partial });
-          }
+          // if (response.partial) {
+          //   logger.info('[Vosk] Partial transcript received', { sessionId, text: response.partial });
+          // }
 
           if (response.text && response.text.trim().length > 0) {
             logger.info('[Vosk] Final transcript received', { sessionId, text: response.text });

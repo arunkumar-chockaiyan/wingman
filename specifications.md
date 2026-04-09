@@ -63,14 +63,15 @@ graph TD
     - **Visual Waveform**: Real-time visualization of audio input.
     - **Live Transcript**: Transcribed speech is streamed back to the frontend in real-time via the `transcript` Socket.io event.
     - **Intelligence Stream**: Displays real-time recommendations and insights from various agents.
-    - **Simulator Panel (Practice Mode)**: Users can paste any transcript text to replay a call through the full AI pipeline (text → TTS → audio pipeline). Helper description guides users to copy transcripts from the conversation view.
+    - **Simulator Panel (Practice Mode)**: Users can paste any transcript text to replay a call through the full AI pipeline (text → TTS → audio pipeline).
     - **Feedback Loop**: "Like" or "Dislike" buttons on each recommendation.
 
 ### 4.2 Backend Features
-- **Kafka Orchestrator** (`kafkaOrchestrator.ts`): Manages topics (`raw-audio`, `transcripts`, `agent-insights`) and routes data between services. Maintains three consumer groups:
+- **Kafka Orchestrator** (`kafkaOrchestrator.ts`): Manages topics (`raw-audio`, `transcripts`, `agent-insights`) and routes data between services. Maintains three internal consumer groups:
     - `audio-processors`: Streams raw audio to Vosk STT.
     - `result-aggregators`: Forwards agent insights to the Socket.io layer.
     - `transcript-feed`: Streams processed transcripts back to the connected client in real-time.
+    Each agent also operates in its own dedicated consumer group (`sales-coach-group`, `qa-agent-group`, `search-agent-group`), enabling independent horizontal scaling per agent.
 - **Audio Processor**: Consumes `raw-audio` from Kafka and streams it to Vosk STT via WebSockets per session. Manages per-session WebSocket lifecycle.
 - **Agentic Analysis Layer**:
     - **Sales Coach Agent**: Analyzes transcripts for tone and objection handling.
@@ -79,8 +80,9 @@ graph TD
 - **Persistence** (`callSessionService.ts`, `callSessionRepository.ts`):
     - All call sessions are associated with a default `admin` user (seeded on startup).
     - `startSession()` creates a `CallSession` record.
-    - `endSession()` closes the session and persists the full transcript.
+    - `endSession()` closes the session and persists the full transcript (accumulated in-memory during the call).
     - `recordFeedback()` updates the `feedbackStatus` on a `Recommendation`.
+    - **Note**: Agent insights are currently broadcast to the frontend in real-time only; automatic persistence of `Recommendation` records on arrival is not yet implemented.
 - **Observability**:
     - Centralized logger (`src/utils/logger.ts`) auto-enriches log entries with `traceId` and `spanId` from the active OpenTelemetry context.
     - OpenTelemetry is initialized at application startup (`src/config/tracing.ts`) before any other library imports, ensuring HTTP, Express, and Kafka are auto-instrumented.
@@ -123,7 +125,7 @@ graph TD
 
 | Event Name | Direction | Payload | Description |
 |---|---|---|---|
-| `start-call` | Client → Server | `{ sessionId?: string, title: string }` | Initializes a new DB-backed session |
+| `start-call` | Client → Server | `{ sessionId: string, title: string }` | Initializes a new DB-backed session; `sessionId` is always a client-generated UUID |
 | `session-started` | Server → Client | `{ sessionId: string, title: string }` | Confirms session creation with DB ID |
 | `audio-chunk` | Client → Server | `{ sessionId: string, chunk: Buffer }` | Raw audio data chunks |
 | `transcript` | Server → Client | `{ transcript: string, timestamp: number }` | Live transcribed text pushed to client |
@@ -143,7 +145,7 @@ graph TD
 | `wingman-grafana` | `grafana/grafana` | 3000 | Unified observability dashboard |
 
 ## 8. Performance & Scalability
-- **Kafka Consumer Groups**: All three agents use separate consumer groups, allowing independent horizontal scaling.
+- **Kafka Consumer Groups**: All three agents use separate consumer groups (`sales-coach-group`, `qa-agent-group`, `search-agent-group`), independent from the orchestrator's three internal groups, allowing per-agent horizontal scaling.
 - **Vosk**: Self-hosted STT provides low-latency transcription with WebSocket streaming per session.
 - **Gemini 1.5 Flash**: Optimized for speed and cost for real-time triggers.
 - **Prisma Singleton**: A single `PrismaClient` instance is shared across the application to prevent connection exhaustion.

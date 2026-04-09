@@ -41,7 +41,7 @@ const logger = winston.createLogger({
         // Loki transport — pushes logs to Grafana Loki
         new LokiTransport({
             host: lokiHost,
-            labels: { app: 'wingman-backend', qa: 'test' },
+            labels: { app: 'wingman-backend', environment: process.env.NODE_ENV || 'development' },
             json: true,
             batching: false,
             interval: 5,

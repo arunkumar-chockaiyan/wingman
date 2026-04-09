@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Settings, Bird } from 'lucide-react';
 
 interface HeaderProps {
-    sessionId: string;
     isCalling: boolean;
 }
 
