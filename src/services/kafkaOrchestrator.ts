@@ -2,6 +2,7 @@ import { Producer, Consumer } from 'kafkajs';
 import WebSocket from 'ws';
 import kafka from '../config/kafkaClient';
 import logger from '../utils/logger';
+import { redactPII } from '../utils/guardrails';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -49,6 +50,14 @@ export class Orchestrator {
 
   /** Pending delayed-close timeouts, keyed by sessionId — tracked so they can be cancelled on shutdown. */
   private readonly voskCleanupTimeouts = new Map<string, NodeJS.Timeout>();
+
+  /** Callback invoked with partial (in-progress) transcript updates directly from Vosk. */
+  private partialTranscriptCallback?: (sessionId: string, partial: string) => void;
+
+  /** Tracks the word count at the last partial emit per session, for 10-word throttling. */
+  private readonly partialWordCounts = new Map<string, number>();
+
+  private static readonly PARTIAL_WORD_THRESHOLD = 10;
 
   constructor() {
     this.producer = kafka.producer();
@@ -100,6 +109,11 @@ export class Orchestrator {
   // Public API
   // -----------------------------------------------------------------------
 
+  /** Register a callback to receive partial (in-progress) transcript updates directly from Vosk. */
+  onPartialTranscript(cb: (sessionId: string, partial: string) => void): void {
+    this.partialTranscriptCallback = cb;
+  }
+
   /** Enqueue a raw audio chunk onto the `raw-audio` Kafka topic. */
   async handleAudioChunk(sessionId: string, chunk: Buffer): Promise<void> {
     await this.producer.send({
@@ -110,10 +124,11 @@ export class Orchestrator {
 
   /** Publish a finalised transcript segment for downstream agents. */
   async broadcastTranscript(sessionId: string, transcript: string): Promise<void> {
+    const redacted = redactPII(transcript);
     await this.producer.send({
       topic: 'transcripts',
       messages: [
-        { key: sessionId, value: JSON.stringify({ transcript, timestamp: Date.now() }) },
+        { key: sessionId, value: JSON.stringify({ transcript: redacted, timestamp: Date.now() }) },
       ],
     });
   }
@@ -253,12 +268,22 @@ export class Orchestrator {
         try {
           const response = JSON.parse(data.toString());
 
-          // if (response.partial) {
-          //   logger.info('[Vosk] Partial transcript received', { sessionId, text: response.partial });
-          // }
+          if (response.partial && response.partial.trim().length > 0) {
+            const wordCount = response.partial.trim().split(/\s+/).length;
+            const lastCount = this.partialWordCounts.get(sessionId) ?? 0;
+
+            if (wordCount - lastCount >= Orchestrator.PARTIAL_WORD_THRESHOLD) {
+              this.partialWordCounts.set(sessionId, wordCount);
+              this.partialTranscriptCallback?.(sessionId, response.partial.trim());
+            }
+          }
 
           if (response.text && response.text.trim().length > 0) {
             logger.info('[Vosk] Final transcript received', { sessionId, text: response.text });
+            // Reset partial word count — this utterance is complete
+            this.partialWordCounts.delete(sessionId);
+            // Flush any un-throttled partial as the final before broadcasting
+            this.partialTranscriptCallback?.(sessionId, response.text.trim());
             await this.broadcastTranscript(sessionId, response.text.trim());
           }
         } catch (err) {
@@ -269,6 +294,7 @@ export class Orchestrator {
       ws.on('close', () => {
         logger.info('[Vosk] Connection closed', { sessionId });
         this.activeVoskSessions.delete(sessionId);
+        this.partialWordCounts.delete(sessionId);
       });
 
       ws.on('error', (err) => {

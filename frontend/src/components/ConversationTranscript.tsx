@@ -41,30 +41,54 @@ export const ConversationTranscript: React.FC<ConversationTranscriptProps> = ({ 
                 ) : (
                     transcripts.map((chunk, idx) => {
                         const isSimulated = chunk.speaker === 'Simulator';
+                        // For live chunks: speakerIndex 1 aligns right, 0 aligns left
+                        const isRight = isSimulated || chunk.speakerIndex === 1;
+
                         return (
-                            <div key={idx} className={`flex gap-4 ${isSimulated ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-500`}>
-                                {!isSimulated && (
+                            <div
+                                key={idx}
+                                className={`flex gap-3 ${isRight ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-500`}
+                            >
+                                {/* Left avatar — Speaker 0 or live user */}
+                                {!isRight && (
                                     <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center shrink-0 border border-slate-200">
                                         <User size={16} className="text-slate-500" />
                                     </div>
                                 )}
 
-                                <div className={`max-w-[80%] flex flex-col ${isSimulated ? 'items-end' : 'items-start'}`}>
-                                    <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm border ${isSimulated
-                                        ? 'bg-slate-900 text-white border-slate-800 rounded-tr-none'
-                                        : 'bg-white text-slate-700 border-slate-100 rounded-tl-none'
-                                        }`}>
+                                <div className={`max-w-[80%] flex flex-col ${isRight ? 'items-end' : 'items-start'}`}>
+                                    <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm border transition-opacity duration-200
+                                        ${isSimulated
+                                            ? 'bg-slate-900 text-white border-slate-800 rounded-tr-none'
+                                            : isRight
+                                                ? 'bg-indigo-50 text-indigo-900 border-indigo-100 rounded-tr-none'
+                                                : 'bg-white text-slate-700 border-slate-100 rounded-tl-none'
+                                        }
+                                        ${chunk.partial ? 'opacity-60' : 'opacity-100'}`}
+                                    >
                                         {chunk.transcript}
+                                        {chunk.partial && (
+                                            <span className="inline-block w-0.5 h-3.5 ml-0.5 bg-current align-middle animate-pulse" />
+                                        )}
                                     </div>
                                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter mt-1.5 px-1">
                                         {new Date(chunk.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                        {isSimulated ? ' • Practice' : ' • Live'}
+                                        {isSimulated ? ' • Practice' : isRight ? ' • Speaker B' : ' • Speaker A'}
                                     </span>
                                 </div>
 
-                                {isSimulated && (
-                                    <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 border border-indigo-500 shadow-md shadow-indigo-100">
-                                        <Bot size={16} className="text-white" />
+                                {/* Right avatar — Speaker 1 or simulator */}
+                                {isRight && (
+                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border
+                                        ${isSimulated
+                                            ? 'bg-indigo-600 border-indigo-500 shadow-md shadow-indigo-100'
+                                            : 'bg-indigo-100 border-indigo-200'
+                                        }`}
+                                    >
+                                        {isSimulated
+                                            ? <Bot size={16} className="text-white" />
+                                            : <User size={16} className="text-indigo-500" />
+                                        }
                                     </div>
                                 )}
                             </div>

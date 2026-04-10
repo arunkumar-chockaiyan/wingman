@@ -1,8 +1,9 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { tavily } from '@tavily/core';
 import { AGENT_PROMPTS } from '../prompts/agentTemplates';
 import kafka from '../config/kafkaClient';
 import logger from '../utils/logger';
+import { sanitizeInput, validateOutput } from '../utils/guardrails';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY || '' });
@@ -56,11 +57,24 @@ export class SearchAgent {
     }
 
     private async performSearchAndAnalysis(transcript: string): Promise<string | null> {
+        const safeInput = sanitizeInput('search-agent', transcript);
+        if (!safeInput) return null;
+
         try {
+            const model = genAI.getGenerativeModel({
+                model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+                safetySettings: [
+                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                ],
+                generationConfig: { maxOutputTokens: 300 },
+            });
+
             // 1. Generate search query using Gemini
-            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
             const queryResult = await model.generateContent([
-                `Based on this transcript snippet, generate a single web search query to help a salesperson: "${transcript}"`,
+                `Based on this transcript snippet, generate a single web search query to help a salesperson: "${safeInput}"`,
             ]);
             const query = queryResult.response.text().trim();
 
@@ -72,10 +86,10 @@ export class SearchAgent {
             const summaryResult = await model.generateContent([
                 AGENT_PROMPTS.SEARCH_AGENT.system,
                 `Context from Web: ${context}`,
-                `Current Transcript: ${transcript}`,
+                `Current Transcript: ${safeInput}`,
             ]);
 
-            return summaryResult.response.text();
+            return validateOutput('search-agent', summaryResult.response.text());
         } catch (error) {
             logger.error('search-agent: pipeline error', {
                 error: error instanceof Error ? error.stack : error,

@@ -1,7 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { AGENT_PROMPTS } from '../prompts/agentTemplates';
 import kafka from '../config/kafkaClient';
 import logger from '../utils/logger';
+import { sanitizeInput, validateOutput } from '../utils/guardrails';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
 
@@ -78,13 +79,25 @@ export class GenericAgent {
     }
 
     private async analyze(transcript: string): Promise<string | null> {
+        const safeInput = sanitizeInput(this.agentId, transcript);
+        if (!safeInput) return null;
+
         try {
-            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+            const model = genAI.getGenerativeModel({
+                model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+                safetySettings: [
+                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                ],
+                generationConfig: { maxOutputTokens: 300 },
+            });
             const result = await model.generateContent([
                 this.prompt.system,
-                `Current Transcript: ${transcript}`,
+                `Current Transcript: ${safeInput}`,
             ]);
-            return result.response.text();
+            return validateOutput(this.agentId, result.response.text());
         } catch (error) {
             logger.error(`${this.agentId}: Gemini API error`, {
                 agentId: this.agentId,

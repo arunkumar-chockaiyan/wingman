@@ -4,12 +4,14 @@ import { Server } from 'socket.io';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import cors from 'cors';
 import * as googleTTS from 'google-tts-api';
+import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { Orchestrator } from './services/kafkaOrchestrator';
 import { CallSessionService } from './services/callSessionService';
 import { UserRepository } from './repositories/UserRepository';
 import { CallSessionRepository } from './repositories/CallSessionRepository';
 import { RecommendationRepository } from './repositories/RecommendationRepository';
 import logger from './utils/logger';
+import { sanitizeInput, validateOutput } from './utils/guardrails';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -80,6 +82,62 @@ app.post('/api/simulate-tts', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Call Summary Endpoint
+// ---------------------------------------------------------------------------
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+
+const SUMMARY_SYSTEM_PROMPT = `You are summarizing an ongoing B2B sales call in real time for the salesperson's reference.
+Based on the transcript so far, provide a concise live summary using exactly this format — each item on its own line starting with "•":
+• Key topics discussed
+• Customer's stated needs or concerns
+• Any objections raised
+• Action items or commitments mentioned
+
+Rules:
+- Maximum 5 bullet points total
+- Each bullet must be one sentence, direct and actionable
+- If the transcript is too short to summarize, respond with only: "• Call just started — not enough context yet."
+- Do not add headers, preamble, or closing remarks`;
+
+app.post('/api/summarize', async (req, res) => {
+    try {
+        const { transcript } = req.body;
+        if (!transcript || typeof transcript !== 'string') {
+            return res.status(400).json({ error: 'transcript is required' });
+        }
+
+        const safeInput = sanitizeInput('summarizer', transcript);
+        if (!safeInput) {
+            return res.status(400).json({ error: 'Transcript failed safety check' });
+        }
+
+        const model = genAI.getGenerativeModel({
+            model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+            safetySettings: [
+                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
+            ],
+            generationConfig: { maxOutputTokens: 300 },
+        });
+
+        const result = await model.generateContent([SUMMARY_SYSTEM_PROMPT, `Transcript so far:\n${safeInput}`]);
+        const summary = validateOutput('summarizer', result.response.text());
+
+        if (!summary) {
+            return res.status(500).json({ error: 'Summary generation produced no output' });
+        }
+
+        res.json({ summary });
+    } catch (error) {
+        logger.error('summarize endpoint error', { error });
+        res.status(500).json({ error: 'Failed to generate summary' });
+    }
+});
+
+// ---------------------------------------------------------------------------
 // Main Entry Point
 // ---------------------------------------------------------------------------
 
@@ -98,7 +156,12 @@ export async function bootstrap() {
         io.to(sessionId).emit('insight', insight);
     });
 
-    // Listen for transcripts and broadcast
+    // Listen for partial (in-progress) transcripts from Vosk and stream to client immediately
+    orchestrator.onPartialTranscript((sessionId, partial) => {
+        io.to(sessionId).emit('partial-transcript', { transcript: partial, timestamp: Date.now() });
+    });
+
+    // Listen for final transcripts and broadcast
     await orchestrator.startTranscriptListener((sessionId, data) => {
         io.to(sessionId).emit('transcript', data);
 

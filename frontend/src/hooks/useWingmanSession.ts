@@ -19,6 +19,22 @@ const generateUUID = (): string =>
         return v.toString(16);
     });
 
+/**
+ * Prepare a pasted transcript for TTS playback:
+ * - Speaker labels (e.g. "John:", "Sales Rep:") at the start of a line are removed and
+ *   replaced with a short pause so the voice doesn't read them aloud.
+ * - Line breaks are also converted to pauses.
+ * A period+space is used as the pause marker because Google TTS splits on sentence
+ * boundaries, producing a natural breath between utterances.
+ */
+function preprocessTranscriptForTTS(text: string): string {
+    return text
+        .replace(/^[\w][\w ]{0,30}:\s*/gm, '. ')   // speaker labels at line start
+        .replace(/\n+/g, '. ')                        // line breaks → pause
+        .replace(/(\.\s*){2,}/g, '. ')                // collapse consecutive pause markers
+        .trim();
+}
+
 /** Fetch TTS audio from the backend and return a playable Blob. */
 async function fetchTTSAudio(text: string): Promise<Blob> {
     const res = await fetch(`${BACKEND_URL}/api/simulate-tts`, {
@@ -55,11 +71,15 @@ async function fetchTTSAudio(text: string): Promise<Blob> {
 // Hook
 // ---------------------------------------------------------------------------
 
+const SUMMARY_EVERY_N_UTTERANCES = 5;
+
 export const useWingmanSession = () => {
     const [isCalling, setIsCalling] = useState(false);
     const [isSimulating, setIsSimulating] = useState(false);
     const [insights, setInsights] = useState<Insight[]>([]);
     const [transcripts, setTranscripts] = useState<TranscriptChunk[]>([]);
+    const [summary, setSummary] = useState<string>('');
+    const [isSummarizing, setIsSummarizing] = useState(false);
     const [socketConnected, setSocketConnected] = useState(false);
 
     const sessionIdRef = useRef<string>('');
@@ -72,6 +92,43 @@ export const useWingmanSession = () => {
 
     const isSimulatingRef = useRef(false);
     useEffect(() => { isSimulatingRef.current = isSimulating; }, [isSimulating]);
+
+    const finalCountRef = useRef<number>(0);
+    const transcriptsRef = useRef<TranscriptChunk[]>([]);
+    useEffect(() => { transcriptsRef.current = transcripts; }, [transcripts]);
+
+    const fetchSummary = useCallback(async () => {
+        const text = transcriptsRef.current
+            .filter(t => !t.partial)
+            .map(t => t.transcript)
+            .join(' ')
+            .trim();
+        if (!text) return;
+
+        setIsSummarizing(true);
+        try {
+            const res = await fetch(`${BACKEND_URL}/api/summarize`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transcript: text }),
+            });
+            if (res.ok) {
+                const { summary } = await res.json();
+                setSummary(summary ?? '');
+            }
+        } catch (err) {
+            console.error('[fetchSummary] failed:', err);
+        } finally {
+            setIsSummarizing(false);
+        }
+    }, []);
+
+    // VAD heuristic: gap > threshold between finals → assume speaker changed
+    const SPEAKER_CHANGE_GAP_MS = 1500;
+    const lastFinalTimestampRef = useRef<number>(0);
+    const currentSpeakerIdxRef = useRef<number>(0);
+    // Speaker index locked in when a new utterance starts, kept stable through partial updates
+    const utteranceSpeakerIdxRef = useRef<number>(0);
 
     // -------------------------------------------------------------------
     // Socket lifecycle — connect once, never reconnect on state changes
@@ -88,11 +145,67 @@ export const useWingmanSession = () => {
             setInsights((prev) => [...prev, insight]);
         });
 
+        socket.on('partial-transcript', (data: { transcript: string; timestamp: number }) => {
+            setTranscripts((prev) => {
+                const isNewUtterance = prev.length === 0 || !prev[prev.length - 1].partial;
+
+                if (isNewUtterance && !isSimulatingRef.current) {
+                    // Detect speaker change: significant gap since last final → toggle side
+                    const gap = Date.now() - lastFinalTimestampRef.current;
+                    if (lastFinalTimestampRef.current > 0 && gap > SPEAKER_CHANGE_GAP_MS) {
+                        currentSpeakerIdxRef.current = 1 - currentSpeakerIdxRef.current;
+                    }
+                    utteranceSpeakerIdxRef.current = currentSpeakerIdxRef.current;
+                }
+
+                const chunk: TranscriptChunk = {
+                    ...data,
+                    partial: true,
+                    speaker: isSimulatingRef.current ? 'Simulator' : 'User',
+                    speakerIndex: isSimulatingRef.current ? undefined : utteranceSpeakerIdxRef.current,
+                };
+
+                if (!isNewUtterance) {
+                    return [...prev.slice(0, -1), chunk];
+                }
+                return [...prev, chunk];
+            });
+        });
+
         socket.on('transcript', (data: TranscriptChunk) => {
-            setTranscripts((prev) => [
-                ...prev,
-                { ...data, speaker: isSimulatingRef.current ? 'Simulator' : 'User' },
-            ]);
+            setTranscripts((prev) => {
+                const prevIsPartial = prev.length > 0 && prev[prev.length - 1].partial;
+
+                if (!isSimulatingRef.current) {
+                    if (!prevIsPartial) {
+                        // Final arrived with no preceding partial (short utterance) — detect speaker change now
+                        const gap = Date.now() - lastFinalTimestampRef.current;
+                        if (lastFinalTimestampRef.current > 0 && gap > SPEAKER_CHANGE_GAP_MS) {
+                            currentSpeakerIdxRef.current = 1 - currentSpeakerIdxRef.current;
+                        }
+                        utteranceSpeakerIdxRef.current = currentSpeakerIdxRef.current;
+                    }
+                    lastFinalTimestampRef.current = Date.now();
+                }
+
+                // Trigger a summary refresh every N final utterances
+                finalCountRef.current += 1;
+                if (finalCountRef.current % SUMMARY_EVERY_N_UTTERANCES === 0) {
+                    fetchSummary();
+                }
+
+                const chunk: TranscriptChunk = {
+                    ...data,
+                    partial: false,
+                    speaker: isSimulatingRef.current ? 'Simulator' : 'User',
+                    speakerIndex: isSimulatingRef.current ? undefined : utteranceSpeakerIdxRef.current,
+                };
+
+                if (prevIsPartial) {
+                    return [...prev.slice(0, -1), chunk];
+                }
+                return [...prev, chunk];
+            });
         });
 
         // Reset call state on server-side errors so the UI doesn't get stuck
@@ -198,6 +311,8 @@ export const useWingmanSession = () => {
     const stopCall = useCallback(() => {
         setIsCalling(false);
         setIsSimulating(false);
+        setSummary('');
+        finalCountRef.current = 0;
         teardownAudio();
         socketRef.current?.emit('end-call', { sessionId: sessionIdRef.current });
     }, [teardownAudio]);
@@ -231,8 +346,8 @@ export const useWingmanSession = () => {
         setInsights([]);
 
         try {
-            // 1. Fetch TTS audio
-            const audioBlob = await fetchTTSAudio(text);
+            // 1. Fetch TTS audio (preprocess to turn labels/line-breaks into pauses)
+            const audioBlob = await fetchTTSAudio(preprocessTranscriptForTTS(text));
             const audioUrl = URL.createObjectURL(audioBlob);
 
             // 2. Create audio element (don't play yet)
@@ -314,6 +429,8 @@ export const useWingmanSession = () => {
         sessionId,
         insights,
         transcripts,
+        summary,
+        isSummarizing,
         socketConnected,
         startCall,
         startSimulation,

@@ -12,6 +12,7 @@ import { io, Socket } from 'socket.io-client';
 import https from 'https';
 import dotenv from 'dotenv';
 import path from 'path';
+import crypto from 'crypto';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
@@ -38,7 +39,7 @@ describe('E2E Audio Pipeline via Socket.IO', () => {
         const fullAudioBuffer = await downloadSampleAudio();
         const rawPcm = fullAudioBuffer.subarray(44); // Strip WAV header
 
-        const sessionId = `test-e2e-${Date.now()}`;
+        const sessionId = crypto.randomUUID();
         const transcripts: string[] = [];
 
         // Connect via Socket.IO just like the frontend does
@@ -113,7 +114,7 @@ describe('E2E Audio Pipeline via Socket.IO', () => {
             testData[i] = Math.floor(Math.sin(i / 10) * 16000); // Sine wave pattern
         }
 
-        const sessionId = `test-format-${Date.now()}`;
+        const sessionId = crypto.randomUUID();
         socket.emit('start-call', { sessionId, title: 'Format Test' });
         await new Promise(r => setTimeout(r, 1000));
 
