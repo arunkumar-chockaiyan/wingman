@@ -1,7 +1,7 @@
 import { UserRepository } from '../repositories/UserRepository';
 import { CallSessionRepository } from '../repositories/CallSessionRepository';
 import { RecommendationRepository } from '../repositories/RecommendationRepository';
-import { CallSession, FeedbackStatus } from '@prisma/client';
+import { CallSession, Recommendation, FeedbackStatus } from '@prisma/client';
 
 export class CallSessionService {
     constructor(
@@ -41,8 +41,19 @@ export class CallSessionService {
         category: string;
         agentId: string;
         contextSnippet?: string;
-    }): Promise<void> {
-        await this.recommendationRepo.create(data);
+    }): Promise<Recommendation> {
+        return this.recommendationRepo.create(data);
+    }
+
+    /**
+     * Persists sales-rep authored context (notes, links, AI instructions) for a session.
+     * Called live as the rep types — safe to call multiple times.
+     */
+    async updateRepContext(
+        sessionId: string,
+        data: { repNotes?: string; repLinks?: string; repInstructions?: string },
+    ): Promise<void> {
+        await this.sessionRepo.updateRepContext(sessionId, data);
     }
 
     /**

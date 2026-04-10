@@ -3,8 +3,9 @@ import { AGENT_PROMPTS } from '../prompts/agentTemplates';
 import kafka from '../config/kafkaClient';
 import logger from '../utils/logger';
 import { sanitizeInput, validateOutput } from '../utils/guardrails';
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+import { contextStore } from '../services/contextStore';
+import { ENV } from '../config/env';
+const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,7 +48,7 @@ export class GenericAgent {
                     const { transcript } = JSON.parse(message.value?.toString() || '{}');
 
                     if (this.shouldTrigger(transcript)) {
-                        const insight = await this.analyze(transcript);
+                        const insight = await this.analyze(sessionId, transcript);
                         if (sessionId && insight) {
                             await this.producer.send({
                                 topic: 'agent-insights',
@@ -78,24 +79,27 @@ export class GenericAgent {
         );
     }
 
-    private async analyze(transcript: string): Promise<string | null> {
-        const safeInput = sanitizeInput(this.agentId, transcript);
+    private async analyze(sessionId: string | undefined, latestUtterance: string): Promise<string | null> {
+        const safeInput = sanitizeInput(this.agentId, latestUtterance);
         if (!safeInput) return null;
+
+        const fullContext = sessionId ? contextStore.getFullContext(sessionId) : `[CONVERSATION SO FAR]\n${safeInput}`;
 
         try {
             const model = genAI.getGenerativeModel({
-                model: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+                model: ENV.GEMINI_MODEL,
                 safetySettings: [
                     { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                     { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                     { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                     { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                 ],
-                generationConfig: { maxOutputTokens: 300 },
+                generationConfig: { maxOutputTokens: 1024 },
             });
             const result = await model.generateContent([
                 this.prompt.system,
-                `Current Transcript: ${safeInput}`,
+                fullContext,
+                `[LATEST UTTERANCE]\n${safeInput}`,
             ]);
             return validateOutput(this.agentId, result.response.text());
         } catch (error) {

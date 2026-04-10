@@ -71,8 +71,6 @@ async function fetchTTSAudio(text: string): Promise<Blob> {
 // Hook
 // ---------------------------------------------------------------------------
 
-const SUMMARY_EVERY_N_UTTERANCES = 5;
-
 export const useWingmanSession = () => {
     const [isCalling, setIsCalling] = useState(false);
     const [isSimulating, setIsSimulating] = useState(false);
@@ -93,34 +91,29 @@ export const useWingmanSession = () => {
     const isSimulatingRef = useRef(false);
     useEffect(() => { isSimulatingRef.current = isSimulating; }, [isSimulating]);
 
-    const finalCountRef = useRef<number>(0);
-    const transcriptsRef = useRef<TranscriptChunk[]>([]);
-    useEffect(() => { transcriptsRef.current = transcripts; }, [transcripts]);
+    /** Send like/dislike feedback for a saved insight. Updates local state immediately. */
+    const sendFeedback = useCallback((insightId: string, status: 'liked' | 'disliked') => {
+        socketRef.current?.emit('feedback', {
+            sessionId: sessionIdRef.current,
+            id: insightId,
+            status,
+        });
+        setInsights(prev => prev.map(ins =>
+            ins.id === insightId
+                ? { ...ins, feedbackStatus: status === 'liked' ? 'LIKED' : 'DISLIKED' }
+                : ins
+        ));
+    }, []);
 
-    const fetchSummary = useCallback(async () => {
-        const text = transcriptsRef.current
-            .filter(t => !t.partial)
-            .map(t => t.transcript)
-            .join(' ')
-            .trim();
-        if (!text) return;
-
-        setIsSummarizing(true);
-        try {
-            const res = await fetch(`${BACKEND_URL}/api/summarize`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transcript: text }),
-            });
-            if (res.ok) {
-                const { summary } = await res.json();
-                setSummary(summary ?? '');
-            }
-        } catch (err) {
-            console.error('[fetchSummary] failed:', err);
-        } finally {
-            setIsSummarizing(false);
-        }
+    /** Emit notes/links/instructions to the backend so agents have full context. */
+    const updateRepContext = useCallback((notes: string, links: string, instructions: string) => {
+        if (!sessionIdRef.current) return;
+        socketRef.current?.emit('update-rep-context', {
+            sessionId: sessionIdRef.current,
+            notes,
+            links,
+            instructions,
+        });
     }, []);
 
     // VAD heuristic: gap > threshold between finals → assume speaker changed
@@ -142,7 +135,20 @@ export const useWingmanSession = () => {
         socket.on('disconnect', () => setSocketConnected(false));
 
         socket.on('insight', (insight: Insight) => {
-            setInsights((prev) => [...prev, insight]);
+            setInsights((prev) => [...prev, { ...insight, feedbackStatus: 'NONE' }]);
+        });
+
+        socket.on('summary-start', () => {
+            setSummary('');
+            setIsSummarizing(true);
+        });
+
+        socket.on('summary-chunk', ({ chunk }: { chunk: string }) => {
+            setSummary(prev => prev + chunk);
+        });
+
+        socket.on('summary-done', () => {
+            setIsSummarizing(false);
         });
 
         socket.on('partial-transcript', (data: { transcript: string; timestamp: number }) => {
@@ -186,12 +192,6 @@ export const useWingmanSession = () => {
                         utteranceSpeakerIdxRef.current = currentSpeakerIdxRef.current;
                     }
                     lastFinalTimestampRef.current = Date.now();
-                }
-
-                // Trigger a summary refresh every N final utterances
-                finalCountRef.current += 1;
-                if (finalCountRef.current % SUMMARY_EVERY_N_UTTERANCES === 0) {
-                    fetchSummary();
                 }
 
                 const chunk: TranscriptChunk = {
@@ -312,7 +312,7 @@ export const useWingmanSession = () => {
         setIsCalling(false);
         setIsSimulating(false);
         setSummary('');
-        finalCountRef.current = 0;
+        setIsSummarizing(false);
         teardownAudio();
         socketRef.current?.emit('end-call', { sessionId: sessionIdRef.current });
     }, [teardownAudio]);
@@ -435,5 +435,7 @@ export const useWingmanSession = () => {
         startCall,
         startSimulation,
         stopCall,
+        updateRepContext,
+        sendFeedback,
     };
 };

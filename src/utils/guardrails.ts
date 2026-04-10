@@ -4,8 +4,8 @@ import logger from './logger';
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_INPUT_CHARS = 2_000;
-const MAX_OUTPUT_CHARS = 1_000;
+const MAX_INPUT_CHARS = 8_000;
+const MAX_OUTPUT_CHARS = 4_000;
 
 const INJECTION_PATTERNS: RegExp[] = [
     /ignore (previous|above|prior|all) instructions/i,
@@ -47,12 +47,11 @@ export function sanitizeInput(agentId: string, transcript: string): string | nul
     }
 
     if (transcript.length > MAX_INPUT_CHARS) {
-        logger.warn('guardrails: input truncated to max length', {
+        logger.warn('guardrails: input exceeds max length — passing through untruncated', {
             agentId,
-            originalLength: transcript.length,
+            inputLength: transcript.length,
             maxLength: MAX_INPUT_CHARS,
         });
-        return transcript.slice(0, MAX_INPUT_CHARS);
     }
 
     return transcript;
@@ -73,12 +72,11 @@ export function validateOutput(agentId: string, output: string): string | null {
     }
 
     if (output.length > MAX_OUTPUT_CHARS) {
-        logger.warn('guardrails: output truncated to max length', {
+        logger.warn('guardrails: output exceeds max length — passing through untruncated', {
             agentId,
-            originalLength: output.length,
+            outputLength: output.length,
             maxLength: MAX_OUTPUT_CHARS,
         });
-        return output.slice(0, MAX_OUTPUT_CHARS);
     }
 
     return output;

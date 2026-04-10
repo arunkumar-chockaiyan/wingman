@@ -20,18 +20,24 @@ model User {
 }
 
 model CallSession {
-  id             String           @id @default(uuid())
-  userId         String
-  user           User             @relation(fields: [userId], references: [id])
-  title          String
-  startTime      DateTime         @default(now())
-  endTime        DateTime?
-  fullTranscript String?          @db.Text
-  summary        String?          @db.Text
+  id              String           @id @default(uuid())
+  userId          String
+  user            User             @relation(fields: [userId], references: [id])
+  title           String
+  startTime       DateTime         @default(now())
+  endTime         DateTime?
+  fullTranscript  String?          @db.Text
+  summary         String?          @db.Text
+
+  // Sales-rep authored context — persisted live as the rep types
+  repNotes        String?          @db.Text
+  repLinks        String?          @db.Text
+  repInstructions String?          @db.Text
+
   recommendations Recommendation[]
 
   @@index([userId])
-  @@index([startTime]) // Added for dashboard sorting
+  @@index([startTime])
 }
 
 model Recommendation {

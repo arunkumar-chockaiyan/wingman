@@ -3,6 +3,7 @@ import WebSocket from 'ws';
 import kafka from '../config/kafkaClient';
 import logger from '../utils/logger';
 import { redactPII } from '../utils/guardrails';
+import { contextStore } from './contextStore';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -125,10 +126,14 @@ export class Orchestrator {
   /** Publish a finalised transcript segment for downstream agents. */
   async broadcastTranscript(sessionId: string, transcript: string): Promise<void> {
     const redacted = redactPII(transcript);
+
+    // Append to context store — agents will read full context from there
+    const utterCount = contextStore.appendTranscript(sessionId, redacted);
+
     await this.producer.send({
       topic: 'transcripts',
       messages: [
-        { key: sessionId, value: JSON.stringify({ transcript: redacted, timestamp: Date.now() }) },
+        { key: sessionId, value: JSON.stringify({ transcript: redacted, timestamp: Date.now(), utterCount }) },
       ],
     });
   }
@@ -219,10 +224,10 @@ export class Orchestrator {
         const chunk = message.value;
         if (!sessionId || !chunk) return;
 
-        logger.info('[AudioProcessor] Received chunk from Kafka', {
-          sessionId,
-          length: chunk.length
-        });
+        // logger.info('[AudioProcessor] Received chunk from Kafka', {
+        //   sessionId,
+        //   length: chunk.length
+        // });
 
         let ws = this.activeVoskSessions.get(sessionId);
 
@@ -238,7 +243,7 @@ export class Orchestrator {
 
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(chunk);
-          logger.info('[AudioProcessor] Sent chunk to Vosk', { sessionId, length: chunk.length });
+          // logger.info('[AudioProcessor] Sent chunk to Vosk', { sessionId, length: chunk.length });
         } else {
           logger.warn('[AudioProcessor] Dropped chunk, WS not open', { sessionId });
         }
@@ -295,6 +300,7 @@ export class Orchestrator {
         logger.info('[Vosk] Connection closed', { sessionId });
         this.activeVoskSessions.delete(sessionId);
         this.partialWordCounts.delete(sessionId);
+        contextStore.cleanup(sessionId);
       });
 
       ws.on('error', (err) => {

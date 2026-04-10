@@ -1,30 +1,42 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, Bird } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Menu, Bird, History } from 'lucide-react';
+
+interface MenuItem {
+    label: string;
+    icon: React.ReactNode;
+    onClick: () => void;
+}
 
 interface HeaderProps {
     isCalling: boolean;
+    onMenuClick: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ isCalling }) => {
-    const [timer, setTimer] = useState(0);
+export const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
 
+    // Close dropdown when clicking outside
     useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if (isCalling) {
-            interval = setInterval(() => {
-                setTimer((prev) => prev + 1);
-            }, 1000);
-        } else {
-            setTimer(0);
-        }
-        return () => clearInterval(interval);
-    }, [isCalling]);
+        const handler = (e: MouseEvent) => {
+            if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+                setMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
 
-    const formatTime = (seconds: number) => {
-        const mins = Math.floor(seconds / 60);
-        const secs = seconds % 60;
-        return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    };
+    const menuItems: MenuItem[] = [
+        {
+            label: 'Call History',
+            icon: <History size={15} className="text-indigo-500" />,
+            onClick: () => {
+                setMenuOpen(false);
+                onMenuClick();
+            },
+        },
+    ];
 
     return (
         <header className="h-20 bg-white border-b border-slate-100 px-8 flex items-center justify-between shadow-sm z-50">
@@ -41,19 +53,6 @@ export const Header: React.FC<HeaderProps> = ({ isCalling }) => {
 
             {/* Right: Controls & Status */}
             <div className="flex items-center gap-6">
-                {/* Live Status Badge */}
-                <div className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-full px-4 py-2">
-                    <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full ${isCalling ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                        <div className={`w-1.5 h-1.5 rounded-full bg-white ${isCalling ? 'animate-pulse' : ''}`} />
-                        <span className="text-[10px] font-bold text-white uppercase tracking-wider">
-                            {isCalling ? 'Live' : 'Idle'}
-                        </span>
-                    </div>
-                    <span className="text-sm font-mono font-bold text-slate-700 tracking-tight">
-                        {formatTime(timer)}
-                    </span>
-                </div>
-
                 {/* User Info */}
                 <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center border border-indigo-200">
@@ -62,10 +61,37 @@ export const Header: React.FC<HeaderProps> = ({ isCalling }) => {
                     <span className="text-sm font-semibold text-slate-700">Arun Chockaiyan</span>
                 </div>
 
-                {/* Settings */}
-                <button className="p-2.5 rounded-full bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-700 transition-all shadow-sm">
-                    <Settings size={18} />
-                </button>
+                {/* Menu button + dropdown */}
+                <div className="relative" ref={menuRef}>
+                    <button
+                        onClick={() => setMenuOpen(o => !o)}
+                        title="Menu"
+                        className={`p-2.5 rounded-full bg-white border text-slate-500 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-700 transition-all shadow-sm ${menuOpen ? 'border-indigo-300 bg-indigo-50 text-indigo-600' : 'border-slate-200'}`}
+                    >
+                        <Menu size={18} />
+                    </button>
+
+                    {menuOpen && (
+                        <div className="absolute right-0 mt-2 w-52 bg-white border border-slate-200 rounded-xl shadow-lg z-50 overflow-hidden animate-fade-in">
+                            <div className="px-3 py-2 border-b border-slate-100">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Menu</p>
+                            </div>
+                            <ul className="py-1">
+                                {menuItems.map(item => (
+                                    <li key={item.label}>
+                                        <button
+                                            onClick={item.onClick}
+                                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 transition-colors"
+                                        >
+                                            {item.icon}
+                                            <span className="font-medium">{item.label}</span>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
             </div>
         </header>
     );

@@ -41,4 +41,11 @@ export class CallSessionRepository {
             data: { fullTranscript: existing + ' ' + newText },
         });
     }
+
+    async updateRepContext(
+        id: string,
+        data: { repNotes?: string; repLinks?: string; repInstructions?: string },
+    ): Promise<void> {
+        await prisma.callSession.update({ where: { id }, data });
+    }
 }

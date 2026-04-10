@@ -8,18 +8,18 @@ interface CallSummaryProps {
 }
 
 export const CallSummary: React.FC<CallSummaryProps> = ({ summary, isSummarizing, isCalling }) => {
-    // Parse bullet lines from the summary string
-    const bullets = summary
-        .split('\n')
-        .map(line => line.replace(/^[•\-]\s*/, '').trim())
-        .filter(Boolean);
+    // Parse complete bullet lines; during streaming the last line may be incomplete
+    const lines = summary.split('\n').filter(Boolean);
+    const bullets = isSummarizing
+        ? lines // show raw lines as they stream in (last may be partial)
+        : lines.map(line => line.replace(/^[•\-]\s*/, '').trim()).filter(Boolean);
 
     const showSkeleton = isCalling && !summary && !isSummarizing;
     const isEmpty = !isCalling && !summary;
 
     return (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden shrink-0">
-            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div className="h-full flex flex-col bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
                 <div className="flex items-center gap-2">
                     <FileText size={16} className="text-indigo-600" />
                     <h2 className="font-bold text-slate-900 text-sm tracking-tight">Call Summary</h2>
@@ -27,7 +27,9 @@ export const CallSummary: React.FC<CallSummaryProps> = ({ summary, isSummarizing
                 {isSummarizing && (
                     <div className="flex items-center gap-1.5">
                         <Loader2 size={12} className="text-indigo-400 animate-spin" />
-                        <span className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider">Updating</span>
+                        <span className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider">
+                            {summary ? 'Updating' : 'Generating'}
+                        </span>
                     </div>
                 )}
                 {!isSummarizing && summary && (
@@ -35,7 +37,7 @@ export const CallSummary: React.FC<CallSummaryProps> = ({ summary, isSummarizing
                 )}
             </div>
 
-            <div className="px-5 py-4 space-y-2 max-h-52 overflow-y-auto custom-scroll">
+            <div className="flex-1 min-h-0 px-5 py-4 space-y-2 overflow-y-auto custom-scroll">
                 {isEmpty && (
                     <p className="text-xs text-slate-400 italic text-center py-2">
                         Summary will appear once a call is active.
@@ -53,17 +55,21 @@ export const CallSummary: React.FC<CallSummaryProps> = ({ summary, isSummarizing
                     </div>
                 )}
 
-                {bullets.length > 0 && bullets.map((line, i) => (
-                    <div key={i} className="flex items-start gap-2.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
-                        <p className="text-xs text-slate-600 leading-relaxed">{line}</p>
-                    </div>
-                ))}
-
-                {/* Refreshing overlay — show updated bullets but dim them while new summary loads */}
-                {isSummarizing && bullets.length > 0 && (
-                    <p className="text-[10px] text-slate-400 italic pt-1">Refreshing summary…</p>
-                )}
+                {bullets.map((line, i) => {
+                    const text = line.replace(/^[•\-]\s*/, '').trim();
+                    const isLastStreaming = isSummarizing && i === bullets.length - 1;
+                    return (
+                        <div key={i} className="flex items-start gap-2.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
+                            <p className="text-xs text-slate-600 leading-relaxed break-words min-w-0">
+                                {text}
+                                {isLastStreaming && (
+                                    <span className="inline-block w-0.5 h-3 bg-indigo-400 ml-0.5 align-middle animate-cursor-blink" />
+                                )}
+                            </p>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

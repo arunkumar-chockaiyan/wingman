@@ -17,7 +17,7 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
     };
 
     return (
-        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex-1 flex flex-col">
+        <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3 mb-4">
                 <Cpu size={16} className="text-indigo-500" />
                 <h2 className="font-bold uppercase text-slate-900 text-[11px] tracking-widest">
@@ -28,12 +28,13 @@ export const SimulatorPanel: React.FC<SimulatorPanelProps> = ({ onSimulate, isSi
                 Copy any transcript below to replay a sales call.
             </p>
 
-            <div className="relative group flex-1 flex flex-col">
+            <div className="relative group mb-4">
                 <div className="absolute left-3 top-3 pointer-events-none">
                     <MessageSquare size={14} className="text-slate-300 group-focus-within:text-indigo-400 transition-colors" />
                 </div>
                 <textarea
-                    className="w-full flex-1 bg-slate-50 border border-slate-100 text-slate-700 p-3 pl-9 text-xs font-medium rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all mb-4 leading-relaxed resize-none"
+                    className="w-full bg-slate-50 border border-slate-100 text-slate-700 p-3 pl-9 text-xs font-medium rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all leading-relaxed resize-none"
+                    rows={4}
                     value={script}
                     onChange={(e) => setScript(e.target.value)}
                     placeholder="Copy any transcript below to replay a call."
