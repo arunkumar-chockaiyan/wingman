@@ -33,7 +33,7 @@ graph TD
         QA[Q&A Agent\nqa-agent-group]
         SA[Search Agent\nsearch-agent-group]
         SA --> TAVILY[Tavily Search API]
-        SC & QA & SA --> GEMINI[Gemini 1.5 Flash]
+        SC & QA & SA --> GEMINI[Gemini 2.5]
     end
 
     subgraph "Observability"
@@ -179,12 +179,12 @@ flowchart TD
     T --> QA_KW{Q&A Agent\ntrigger keywords?}
     T --> SA_KW{Search Agent\ntrigger keywords?}
 
-    SC_KW -- yes --> SC_LLM[Gemini 1.5 Flash\nSales coaching prompt]
-    QA_KW -- yes --> QA_LLM[Gemini 1.5 Flash\nQ&A prompt]
-    SA_KW -- yes --> SA_QG[Gemini 1.5 Flash\nGenerate search query]
+    SC_KW -- yes --> SC_LLM[Gemini 2.5\nSales coaching prompt]
+    QA_KW -- yes --> QA_LLM[Gemini 2.5\nQ&A prompt]
+    SA_KW -- yes --> SA_QG[Gemini 2.5\nGenerate search query]
 
     SA_QG --> SA_WEB[Tavily Web Search\nmaxResults=3]
-    SA_WEB --> SA_SUM[Gemini 1.5 Flash\nSummarize results]
+    SA_WEB --> SA_SUM[Gemini 2.5\nSummarize results]
 
     SC_LLM --> KI[agent-insights topic]
     QA_LLM --> KI
@@ -209,20 +209,20 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    MIC[Browser Microphone\ngetUserMedia]
-    TTS_SIM[TTS Simulation\nAudio Element]
+    MIC["Browser Microphone<br/>getUserMedia"]
+    TTS_SIM["TTS Simulation<br/>Audio Element"]
 
-    MIC --> AC[AudioContext\nnative sample rate]
+    MIC --> AC["AudioContext<br/>native sample rate"]
     TTS_SIM --> AC
 
-    AC --> WN[pcm-processor.js\nAudioWorkletNode\ndownsamples to 16kHz PCM]
-    WN -->|ArrayBuffer chunks\nvia port.onmessage| SIO_EMIT[socket.emit\naudio-chunk]
+    AC --> WN["pcm-processor.js<br/>AudioWorkletNode<br/>downsamples to 16kHz PCM"]
+    WN -->|"ArrayBuffer chunks"| SIO_EMIT["socket.emit<br/>audio-chunk"]
 
-    SIO_EMIT --> BE[Backend\nSocket.io]
-    BE --> KP[Kafka Producer\nraw-audio topic]
-    KP --> KC[Kafka Consumer\naudio-processors]
-    KC --> VS[Vosk WebSocket\nws://localhost:2700\nper session]
-    VS -->|{ text }| KP2[Kafka Producer\ntranscripts topic]
+    SIO_EMIT --> BE["Backend<br/>Socket.io"]
+    BE --> KP["Kafka Producer<br/>raw-audio topic"]
+    KP --> KC["Kafka Consumer<br/>audio-processors"]
+    KC --> VS["Vosk WebSocket<br/>ws://localhost:2700<br/>per session"]
+    VS -->|"text payload"| KP2["Kafka Producer<br/>transcripts topic"]
 ```
 
 ---
