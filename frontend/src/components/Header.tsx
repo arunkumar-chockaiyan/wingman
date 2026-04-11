@@ -8,7 +8,6 @@ interface MenuItem {
 }
 
 interface HeaderProps {
-    isCalling: boolean;
     onMenuClick: () => void;
 }
 

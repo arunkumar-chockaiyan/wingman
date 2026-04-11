@@ -224,11 +224,6 @@ export class Orchestrator {
         const chunk = message.value;
         if (!sessionId || !chunk) return;
 
-        // logger.info('[AudioProcessor] Received chunk from Kafka', {
-        //   sessionId,
-        //   length: chunk.length
-        // });
-
         let ws = this.activeVoskSessions.get(sessionId);
 
         if (!ws) {
@@ -243,7 +238,6 @@ export class Orchestrator {
 
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(chunk);
-          // logger.info('[AudioProcessor] Sent chunk to Vosk', { sessionId, length: chunk.length });
         } else {
           logger.warn('[AudioProcessor] Dropped chunk, WS not open', { sessionId });
         }

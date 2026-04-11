@@ -81,7 +81,6 @@ export const useWingmanSession = () => {
     const [socketConnected, setSocketConnected] = useState(false);
 
     const sessionIdRef = useRef<string>('');
-    const [sessionId, setSessionId] = useState<string>('');
 
     const socketRef = useRef<Socket | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
@@ -274,7 +273,6 @@ export const useWingmanSession = () => {
     const beginSession = useCallback((title: string): string => {
         const id = generateUUID();
         sessionIdRef.current = id;
-        setSessionId(id);
         setIsCalling(true);
         socketRef.current?.emit('start-call', { sessionId: id, title });
         return id;
@@ -426,7 +424,6 @@ export const useWingmanSession = () => {
     return {
         isCalling,
         isSimulating,
-        sessionId,
         insights,
         transcripts,
         summary,

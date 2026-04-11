@@ -1,12 +1,10 @@
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { tavily } from '@tavily/core';
 import { AGENT_PROMPTS } from '../prompts/agentTemplates';
 import kafka from '../config/kafkaClient';
 import logger from '../utils/logger';
 import { sanitizeInput, validateOutput } from '../utils/guardrails';
 import { contextStore } from '../services/contextStore';
-import { ENV } from '../config/env';
-const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
+import { createGeminiModel } from '../config/geminiConfig';
 const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY || '' });
 
 export class SearchAgent {
@@ -66,16 +64,7 @@ export class SearchAgent {
             : `[CONVERSATION SO FAR]\n${safeInput}`;
 
         try {
-            const model = genAI.getGenerativeModel({
-                model: ENV.GEMINI_MODEL,
-                safetySettings: [
-                    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                ],
-                generationConfig: { maxOutputTokens: 2048 },
-            });
+            const model = createGeminiModel();
 
             // 1. Generate a focused search query using full conversation context
             const queryResult = await model.generateContent([

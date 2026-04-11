@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-    History, ChevronDown, ChevronUp, ThumbsUp, ThumbsDown,
+    History, ChevronDown, ThumbsUp, ThumbsDown,
     Clock, FileText, StickyNote, Link2, Bot, Inbox, ArrowLeft,
 } from 'lucide-react';
 import { HistorySession, HistoryRecommendation } from '../types';

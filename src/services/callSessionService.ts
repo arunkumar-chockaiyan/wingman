@@ -1,5 +1,5 @@
 import { UserRepository } from '../repositories/UserRepository';
-import { CallSessionRepository, CallSummaryInput } from '../repositories/CallSessionRepository';
+import { CallSessionRepository } from '../repositories/CallSessionRepository';
 import { RecommendationRepository } from '../repositories/RecommendationRepository';
 import { CallSession, Recommendation, FeedbackStatus } from '@prisma/client';
 
@@ -26,13 +26,6 @@ export class CallSessionService {
     }
 
     /**
-     * Appends a new transcript chunk to an existing session.
-     */
-    async appendTranscript(sessionId: string, text: string): Promise<void> {
-        await this.sessionRepo.appendTranscript(sessionId, text);
-    }
-
-    /**
      * Persists an AI-generated insight and links it to a session.
      */
     async saveInsight(data: {
@@ -54,13 +47,6 @@ export class CallSessionService {
         data: { repNotes?: string; repLinks?: string; repInstructions?: string },
     ): Promise<void> {
         await this.sessionRepo.updateRepContext(sessionId, data);
-    }
-
-    /**
-     * Creates or updates the structured post-call summary for a session.
-     */
-    async saveSummary(sessionId: string, data: CallSummaryInput) {
-        return this.sessionRepo.upsertSummary(sessionId, data);
     }
 
     /**

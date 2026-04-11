@@ -4,7 +4,6 @@ import { Server } from 'socket.io';
 import { trace, SpanStatusCode } from '@opentelemetry/api';
 import cors from 'cors';
 import * as googleTTS from 'google-tts-api';
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 import { Orchestrator } from './services/kafkaOrchestrator';
 import { CallSessionService } from './services/callSessionService';
 import { UserRepository } from './repositories/UserRepository';
@@ -13,7 +12,7 @@ import { RecommendationRepository } from './repositories/RecommendationRepositor
 import logger from './utils/logger';
 import { sanitizeInput, validateOutput } from './utils/guardrails';
 import { contextStore, REP_CONTEXT_LIMITS } from './services/contextStore';
-import { ENV } from './config/env';
+import { createGeminiModel } from './config/geminiConfig';
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -86,8 +85,6 @@ app.post('/api/simulate-tts', async (req, res) => {
 // Summary helper — called internally on every Nth utterance
 // ---------------------------------------------------------------------------
 
-const genAI = new GoogleGenerativeAI(ENV.GEMINI_API_KEY);
-
 const SUMMARY_SYSTEM_PROMPT = `You are summarizing an ongoing B2B sales call in real time for the salesperson's reference.
 Based on the transcript so far, provide a concise live summary using exactly this format — each item on its own line starting with "•":
 • Key topics discussed
@@ -115,16 +112,7 @@ async function generateAndEmitSummary(sessionId: string): Promise<void> {
     }
 
     try {
-        const model = genAI.getGenerativeModel({
-            model: ENV.GEMINI_MODEL,
-            safetySettings: [
-                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
-            ],
-            generationConfig: { maxOutputTokens: 2048 },
-        });
+        const model = createGeminiModel();
 
         io.to(sessionId).emit('summary-start');
 
