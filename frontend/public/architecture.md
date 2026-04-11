@@ -209,20 +209,20 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    MIC[Browser Microphone\ngetUserMedia]
-    TTS_SIM[TTS Simulation\nAudio Element]
+    MIC[Browser Microphone<br>getUserMedia]
+    TTS_SIM[TTS Simulation<br>Audio Element]
 
-    MIC --> AC[AudioContext\nnative sample rate]
+    MIC --> AC[AudioContext<br>native sample rate]
     TTS_SIM --> AC
 
-    AC --> WN[pcm-processor.js\nAudioWorkletNode\ndownsamples to 16kHz PCM]
-    WN -->|ArrayBuffer chunks\nvia port.onmessage| SIO_EMIT[socket.emit\naudio-chunk]
+    AC --> WN[pcm-processor.js<br>AudioWorkletNode<br>downsamples to 16kHz PCM]
+    WN -->|ArrayBuffer chunks<br>via port.onmessage| SIO_EMIT[socket.emit<br>audio-chunk]
 
-    SIO_EMIT --> BE[Backend\nSocket.io]
-    BE --> KP[Kafka Producer\nraw-audio topic]
-    KP --> KC[Kafka Consumer\naudio-processors]
-    KC --> VS[Vosk WebSocket\nws://localhost:2700\nper session]
-    VS -->|{ text }| KP2[Kafka Producer\ntranscripts topic]
+    SIO_EMIT --> BE[Backend<br>Socket.io]
+    BE --> KP[Kafka Producer<br>raw-audio topic]
+    KP --> KC[Kafka Consumer<br>audio-processors]
+    KC --> VS[Vosk WebSocket<br>ws://localhost:2700<br>per session]
+    VS -->|transcript text| KP2[Kafka Producer<br>transcripts topic]
 ```
 
 ---

@@ -2,6 +2,8 @@
 
 Wingman is an intelligent, real-time sales assistant designed to empower sales professionals during live calls. It leverages a multi-agent orchestration architecture using Apache Kafka and Google's Gemini AI to provide live transcription, actionable insights, and automated research.
 
+📺 **[Watch the full 8-minute end-to-end Demo Video here!](https://youtu.be/8qq-_IJjXWU)**
+
 ## 🚀 Features
 
 - **Live Audio Processing**: Real-time audio ingestion and processing using Vosk STT.
