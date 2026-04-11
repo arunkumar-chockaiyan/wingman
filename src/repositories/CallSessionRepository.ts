@@ -1,5 +1,13 @@
 import { prisma } from '../config/prismaClient';
-import { CallSession } from '@prisma/client';
+import { CallSession, CallSentiment } from '@prisma/client';
+
+export interface CallSummaryInput {
+    outcome?: string;
+    sentiment?: CallSentiment;
+    keyTopics?: string[];
+    actionItems?: string[];
+    notes?: string;
+}
 
 export class CallSessionRepository {
     async create(userId: string, title: string, id?: string): Promise<CallSession> {
@@ -11,7 +19,7 @@ export class CallSessionRepository {
     async findById(id: string): Promise<CallSession | null> {
         return prisma.callSession.findUnique({
             where: { id },
-            include: { recommendations: true },
+            include: { recommendations: true, callSummary: true },
         });
     }
 
@@ -47,5 +55,13 @@ export class CallSessionRepository {
         data: { repNotes?: string; repLinks?: string; repInstructions?: string },
     ): Promise<void> {
         await prisma.callSession.update({ where: { id }, data });
+    }
+
+    async upsertSummary(callSessionId: string, data: CallSummaryInput) {
+        return prisma.callSummary.upsert({
+            where: { callSessionId },
+            create: { callSessionId, ...data },
+            update: data,
+        });
     }
 }

@@ -14,8 +14,10 @@ export const CallSummary: React.FC<CallSummaryProps> = ({ summary, isSummarizing
         ? lines // show raw lines as they stream in (last may be partial)
         : lines.map(line => line.replace(/^[•\-]\s*/, '').trim()).filter(Boolean);
 
-    const showSkeleton = isCalling && !summary && !isSummarizing;
-    const isEmpty = !isCalling && !summary;
+    // Show skeleton any time we're generating but have no content yet (during or after call)
+    const showSkeleton = isSummarizing && !summary;
+    // Only show the idle placeholder when truly inactive — not while a post-call summary is loading
+    const isEmpty = !isCalling && !summary && !isSummarizing;
 
     return (
         <div className="h-full flex flex-col bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">

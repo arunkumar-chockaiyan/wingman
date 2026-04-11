@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wingman System Architecture</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="p-8 pb-32">
+    <div class="max-w-6xl mx-auto shadow-2xl rounded-2xl bg-slate-800 border border-slate-700 p-10 prose prose-invert prose-blue max-w-none">
+        
+        <h1 class="text-4xl text-indigo-400 border-slate-700">Wingman System Architecture</h1>
+        
+        <h2>1. High-Level Component Overview</h2>
+        
+        <pre class="mermaid flex justify-center bg-slate-900 border border-slate-700 p-6 rounded-xl my-6">
+graph TD
+    subgraph "Browser (React + Vite)"
+        UI[UI Components]
+        Hook[useWingmanSession hook]
+        PCM[pcm-processor.js\nAudioWorklet]
+        UI --> Hook
+        Hook --> PCM
+    end
+
+    subgraph "Backend (Node.js / Express)"
+        SIO[Socket.io Server]
+        REST[REST Endpoints\n/api/simulate-tts]
+        SVC[CallSessionService]
+        ORCH[Orchestrator]
+        SIO --> SVC
+        SIO --> ORCH
+        REST --> TTS[Google TTS API]
+    end
+
+    subgraph "Kafka (KRaft)"
+        T1[raw-audio]
+        T2[transcripts]
+        T3[agent-insights]
+    end
+
+    subgraph "Agentic Layer"
+        SC[Sales Coach Agent\nsales-coach-group]
+        QA[Q&A Agent\nqa-agent-group]
+        SA[Search Agent\nsearch-agent-group]
+        SA --> TAVILY[Tavily Search API]
+        SC & QA & SA --> GEMINI[Gemini 1.5 Flash]
+    end
+
+    PCM -->|audio-chunk event| SIO
+    Hook -->|start-call / end-call / feedback| SIO
+    SIO -->|session-started / transcript / insight| Hook
+
+    ORCH -->|produce| T1
+    ORCH -->|consume audio-processors| T1
+    ORCH -->|consume transcript-feed| T2
+    ORCH -->|consume result-aggregators| T3
+
+    ORCH <-->|WebSocket per session| VOSK[Vosk STT\nws://localhost:2700]
+    VOSK -->|final transcript| ORCH
+    ORCH -->|produce| T2
+
+    T2 -->|consume| SC
+    T2 -->|consume| QA
+    T2 -->|consume| SA
+
+    SC & QA & SA -->|produce| T3
+        </pre>
+
+        <h2>2. Core Components & Design Choices</h2>
+        <ul>
+            <li><strong>Frontend (React/Vite):</strong> Captures audio natively and downsamples it to 16kHz PCM chunks using an AudioWorkletNode. Offloads processing to ensure a responsive UI.</li>
+            <li><strong>Real-Time Gateway (Socket.io/Node.js):</strong> Low-latency bidirectional bridge between browser and backend, allowing instantaneous pushing of transcripts without REST polling.</li>
+            <li><strong>Event-Driven Backbone (Kafka in KRaft mode):</strong> Decouples system components via distinct topics (raw-audio, transcripts, insights). Ensures variable LLM response times never block ingestion.</li>
+            <li><strong>Local STT (Vosk):</strong> Locally hosted STT engine via WebSocket cuts latency and cloud costs.</li>
+            <li><strong>Multi-Agent AI (Gemini 1.5 Flash):</strong> Parallelizes AI tasks via contextual routing triggered by keywords, optimizing token usage.</li>
+            <li><strong>Persistence (PostgreSQL/Prisma):</strong> Securely preserves call sessions, transcripts, and AI insights.</li>
+        </ul>
+
+        <h2>3. Real-Time Data Flow (Sequence)</h2>
+        <pre class="mermaid flex justify-center bg-slate-900 border border-slate-700 p-6 rounded-xl my-6">
+sequenceDiagram
+    participant Browser
+    participant Backend as Backend (Socket.io)
+    participant Kafka
+    participant Vosk as Vosk STT
+    participant Agents as AI Agents
+    participant Gemini
+
+    Browser->>Backend: start-call { sessionId, title }
+    Backend-->>Browser: session-started { sessionId }
+
+    loop Audio Streaming
+        Browser->>Backend: audio-chunk { sessionId, chunk }
+        Backend->>Kafka: produce → raw-audio
+        Kafka->>Backend: consume (audio-processors)
+        Backend->>Vosk: stream PCM bytes
+        Vosk-->>Backend: { text: "final transcript" }
+        Backend->>Kafka: produce → transcripts
+        Kafka->>Backend: consume (transcript-feed)
+        Backend-->>Browser: transcript
+    end
+
+    par Agent Processing
+        Kafka->>Agents: consume transcripts
+        Agents->>Gemini: generateContent()
+        Gemini-->>Agents: insight text
+        Agents->>Kafka: produce → agent-insights
+        Kafka->>Backend: consume (result-aggregators)
+        Backend-->>Browser: insight
+    end
+        </pre>
+
+    </div>
+
+    <!-- Mermaid.js -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'dark' });
+    </script>
+</body>
+</html>

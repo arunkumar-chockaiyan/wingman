@@ -35,9 +35,38 @@ model CallSession {
   repInstructions String?          @db.Text
 
   recommendations Recommendation[]
+  callSummary     CallSummary?
 
   @@index([userId])
   @@index([startTime])
+}
+
+model CallSummary {
+  id            String        @id @default(uuid())
+  callSessionId String        @unique
+  session       CallSession   @relation(fields: [callSessionId], references: [id])
+
+  // Structured outcome of the call
+  outcome       String?       @db.Text       // e.g. "Follow-up scheduled", "Demo booked"
+  sentiment     CallSentiment @default(NEUTRAL)
+
+  // JSON arrays stored as Json columns
+  keyTopics     Json?                         // string[]
+  actionItems   Json?                         // string[]
+
+  // Free-form notes added post-call
+  notes         String?       @db.Text
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@index([callSessionId])
+}
+
+enum CallSentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
 }
 
 model Recommendation {

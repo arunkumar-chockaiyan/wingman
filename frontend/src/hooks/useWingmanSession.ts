@@ -312,7 +312,7 @@ export const useWingmanSession = () => {
         setIsCalling(false);
         setIsSimulating(false);
         setSummary('');
-        setIsSummarizing(false);
+        setIsSummarizing(true); // backend will generate a final summary — show spinner immediately
         teardownAudio();
         socketRef.current?.emit('end-call', { sessionId: sessionIdRef.current });
     }, [teardownAudio]);

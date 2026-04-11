@@ -74,7 +74,7 @@ export class SearchAgent {
                     { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                     { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                 ],
-                generationConfig: { maxOutputTokens: 1024 },
+                generationConfig: { maxOutputTokens: 2048 },
             });
 
             // 1. Generate a focused search query using full conversation context

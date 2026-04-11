@@ -103,10 +103,16 @@ Rules:
 
 async function generateAndEmitSummary(sessionId: string): Promise<void> {
     const history = contextStore.getHistory(sessionId);
-    if (!history.trim()) return;
+    if (!history.trim()) {
+        io.to(sessionId).emit('summary-done');
+        return;
+    }
 
     const safeInput = sanitizeInput('summarizer', history);
-    if (!safeInput) return;
+    if (!safeInput) {
+        io.to(sessionId).emit('summary-done');
+        return;
+    }
 
     try {
         const model = genAI.getGenerativeModel({
@@ -117,7 +123,7 @@ async function generateAndEmitSummary(sessionId: string): Promise<void> {
                 { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                 { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
             ],
-            generationConfig: { maxOutputTokens: 1024 },
+            generationConfig: { maxOutputTokens: 2048 },
         });
 
         io.to(sessionId).emit('summary-start');

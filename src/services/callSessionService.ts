@@ -1,5 +1,5 @@
 import { UserRepository } from '../repositories/UserRepository';
-import { CallSessionRepository } from '../repositories/CallSessionRepository';
+import { CallSessionRepository, CallSummaryInput } from '../repositories/CallSessionRepository';
 import { RecommendationRepository } from '../repositories/RecommendationRepository';
 import { CallSession, Recommendation, FeedbackStatus } from '@prisma/client';
 
@@ -54,6 +54,13 @@ export class CallSessionService {
         data: { repNotes?: string; repLinks?: string; repInstructions?: string },
     ): Promise<void> {
         await this.sessionRepo.updateRepContext(sessionId, data);
+    }
+
+    /**
+     * Creates or updates the structured post-call summary for a session.
+     */
+    async saveSummary(sessionId: string, data: CallSummaryInput) {
+        return this.sessionRepo.upsertSummary(sessionId, data);
     }
 
     /**

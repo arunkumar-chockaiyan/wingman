@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wingman System Architecture</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        .neon-accent { color: #818cf8; }
+    </style>
+</head>
+<body class="p-12 flex flex-col items-center justify-center min-h-screen">
+    <div class="max-w-4xl bg-slate-800 p-10 rounded-2xl shadow-2xl border border-slate-700">
+        <h1 class="text-4xl font-bold mb-6 neon-accent border-b border-slate-700 pb-4">Wingman System Architecture</h1>
+        
+        <p class="text-lg text-slate-300 mb-8 leading-relaxed">
+            The underlying architecture of Wingman is designed as an event-driven, real-time streaming system optimized for low-latency audio processing and scalable AI inference.
+        </p>
+
+        <h2 class="text-2xl font-semibold mb-4 text-white">Core Components & Design Choices</h2>
+        <ul class="space-y-3 text-slate-300 mb-8 list-disc pl-5">
+            <li><strong class="text-indigo-300">Frontend (React/Vite):</strong> Captures audio natively and downsamples it to 16kHz PCM chunks using an AudioWorkletNode. Offloads audio processing to ensure a responsive UI.</li>
+            <li><strong class="text-indigo-300">Real-Time Gateway (Socket.io/Node.js):</strong> Low-latency bidirectional bridge between browser and backend, allowing instantaneous pushing of transcripts without REST POLLING.</li>
+            <li><strong class="text-indigo-300">Event-Driven Backbone (Kafka):</strong> Decouples system components via distinct topics (raw-audio, transcripts, insights). Ensures variable LLM response times never block ingestion.</li>
+            <li><strong class="text-indigo-300">Local STT (Vosk):</strong> Locally hosted STT engine via WebSocket cuts latency and cloud costs.</li>
+            <li><strong class="text-indigo-300">Multi-Agent AI (Gemini 1.5):</strong> Parallelizes AI tasks via contextual routing (Sales Coach, Search) triggered by keywords, optimizing token usage.</li>
+            <li><strong class="text-indigo-300">Persistence (PostgreSQL):</strong> Preserves call sessions and insights securely.</li>
+        </ul>
+
+        <h2 class="text-2xl font-semibold mb-4 text-white">Scalability Capabilities</h2>
+        <ul class="space-y-3 text-slate-300 list-disc pl-5">
+            <li><strong class="text-emerald-300">Stateless Gateway Layer:</strong> Orchestrator nodes scale horizontally behind load balancers for concurrent streams.</li>
+            <li><strong class="text-emerald-300">Elastic STT Workers:</strong> Containerized STT engines scale independently.</li>
+            <li><strong class="text-emerald-300">Kafka Consumer Groups:</strong> Duplicate instances of any AI agent can be deployed linearly; Kafka automatically balances the load.</li>
+        </ul>
+    </div>
+</body>
+</html>

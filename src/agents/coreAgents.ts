@@ -94,7 +94,7 @@ export class GenericAgent {
                     { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                     { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                 ],
-                generationConfig: { maxOutputTokens: 1024 },
+                generationConfig: { maxOutputTokens: 2048 },
             });
             const result = await model.generateContent([
                 this.prompt.system,
